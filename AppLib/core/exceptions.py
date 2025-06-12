@@ -26,6 +26,14 @@ class CoreException(Exception):
         if self.details:
             base += f" details={self.details}"
         return base
+    
+class APIException(Exception):
+    """Standardized API exception for business logic errors."""
+    def __init__(self, status_code: int, message: str, details: dict = None):
+        self.status_code = status_code
+        self.message = message
+        self.details = details or {}
+
 
 class ConfigException(CoreException):
     """Raised for configuration errors."""
@@ -53,6 +61,27 @@ class MetricsException(CoreException):
 
 class EventException(CoreException):
     """Raised for event bus or pub/sub errors."""
+    pass
+
+
+class I2CException(Exception):
+    """Base exception for I2C adapter errors."""
+    pass
+
+class CANBusException(Exception):
+    """Base exception for CANBus adapter errors."""
+    pass
+
+class DatabaseException(Exception):
+    """Base exception for database-related errors."""
+    pass
+
+class KafkaException(Exception):
+    """Base exception for Kafka integration errors."""
+    pass
+
+class AdapterException(Exception):
+    """Generic hardware adapter exception (for future use)."""
     pass
 
 # Add more as needed for your core domains.

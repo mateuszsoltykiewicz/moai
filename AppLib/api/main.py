@@ -13,10 +13,18 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-
+from core.logging import configure_logging
+from core.config import get_settings
+from prometheus_fastapi_instrumentator import Instrumentator
 from core.config import AsyncConfigManager
 from models.config import AppConfig
 from models.schemas import ErrorResponseSchema
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.jaeger.thrift import JaegerExporter
+from opentelemetry import trace
 
 # Import all routers (add as needed)
 from api.routers import (
@@ -29,6 +37,32 @@ from api.routers import (
 from api.dependencies import get_secrets_manager, get_auth_service
 
 API_PREFIX = "/api/v1"
+
+settings = get_settings()
+configure_logging(
+    service_name=settings.app_name,
+    fluentd_host=settings.fluentd_host,
+    fluentd_port=settings.fluentd_port
+)
+
+instrumentator = Instrumentator(
+    should_group_status_codes=False,
+    should_ignore_untemplated=True,
+    should_instrument_requests_inprogress=True,
+)
+instrumentator.instrument(app).expose(app, endpoint="/metrics")
+
+# Configure Jaeger exporter (or Zipkin, OTLP, etc.)
+jaeger_exporter = JaegerExporter(
+    agent_host_name="jaeger",  # set via env or config
+    agent_port=6831,
+)
+
+resource = Resource(attributes={"service.name": "my-fastapi-service"})
+provider = TracerProvider(resource=resource)
+processor = BatchSpanProcessor(jaeger_exporter)
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
 
 # --- Security Headers Middleware ---
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -134,6 +168,8 @@ async def startup_event():
     app.state.config_mgr = AsyncConfigManager("configs/dev/app_config.json", schema=AppConfig)
     await app.state.config_mgr.start()
 
+    app.state.i2c_adapters = {}
+
     # Initialize secrets manager and auth service, store in app.state for global access
     app.state.secrets_manager = await get_secrets_manager()
     app.state.auth_service = await get_auth_service()
@@ -163,3 +199,7 @@ app.add_exception_handler(APIException, api_exception_handler)
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO)
+
+
+app = FastAPI()
+FastAPIInstrumentor.instrument_app(app)
