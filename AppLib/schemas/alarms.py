@@ -1,9 +1,3 @@
-"""
-Alarm models for system-wide alerting and monitoring.
-
-Defines the AlarmLevel enum and Alarm model for use across services.
-"""
-
 from enum import Enum
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
