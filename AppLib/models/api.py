@@ -1,12 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import Optional
-
-
 
 class RoutersConfig(BaseModel):
-    """
-    Configuration schema for enabling/disabling routers (API modules).
-    """
+    """Configuration schema for enabling/disabling routers (API modules)."""
     canbus: bool = Field(default=False, description="Enable CANBus API router")
     database: bool = Field(default=False, description="Enable Database API router")
     i2c: bool = Field(default=False, description="Enable I2C API router")
