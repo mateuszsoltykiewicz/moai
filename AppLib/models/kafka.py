@@ -9,10 +9,3 @@ class KafkaConfig(BaseModel):
     ssl_cafile: Optional[str]
     ssl_certfile: Optional[str]
     ssl_keyfile: Optional[str]
-
-class DatabaseConfig(BaseModel):
-    host: str
-    port: int
-    user: str
-    password: SecretStr
-    database: str

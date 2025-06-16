@@ -1,9 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 
-class PersistenceConfig(BaseModel):
-    enabled: bool = Field(default=False)
-    path: Optional[str] = Field(default="state_backups/latest_state.json")
+
 
 class RoutersConfig(BaseModel):
     """

@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from AppLib.models.schemas import AuditEvent, AuditEventCreate
-from models.audit_db import AuditEventDB
+from AppLib.models.audit import AuditEventDB
 from db.session import get_db
 from api.dependencies import get_current_user
 from api.main import APIException

@@ -26,9 +26,6 @@ except ImportError:
 import logging
 logger = logging.getLogger(__name__)
 
-class TracingNotAvailable(Exception):
-    """Raised if tracing is requested but OpenTelemetry is not installed."""
-    pass
 
 class AsyncTracer:
     """

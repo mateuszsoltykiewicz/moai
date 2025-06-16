@@ -11,27 +11,6 @@ from cryptography.fernet import Fernet, InvalidToken
 
 logger = get_logger(__name__)
 
-class AppStateModel(BaseModel):
-    """Versioned application state model"""
-    version: int = Field(default=1, description="Schema version for migrations")
-    service_ready: bool = Field(default=False)
-    last_backup: Optional[datetime] = None
-    connections: Dict[str, Any] = Field(default_factory=dict)
-    metrics: Dict[str, float] = Field(default_factory=dict)
-    hardware_status: Dict[str, str] = Field(default_factory=dict)
-    custom_state: Dict[str, Any] = Field(default_factory=dict)
-
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
-
-    @validator('version')
-    def validate_version(cls, v):
-        if v != 1:
-            raise ValueError(f"Unsupported state version: {v}")
-        return v
-
 class AppState:
     """Production-grade state manager with encryption and versioning"""
     _instance: Optional['AppState'] = None

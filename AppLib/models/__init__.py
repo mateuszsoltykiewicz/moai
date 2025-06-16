@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from .infra import KafkaConfig, DatabaseConfig
-from .security import VaultConfig, KeycloakConfig, AuthConfig
-from .app import PersistenceConfig, RoutersConfig
+from .auth import VaultConfig, KeycloakConfig, AuthConfig
+from .api import PersistenceConfig, RoutersConfig
 
 class AppConfig(BaseModel):
     kafka: KafkaConfig
