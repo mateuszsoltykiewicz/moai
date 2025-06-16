@@ -1,5 +1,7 @@
-from . import CoreException
+from .base import AppLibException
 
-class TracingNotAvailable(CoreException):
-    """Raised if tracing is requested but OpenTelemetry is not installed."""
-    pass
+class TracingException(AppLibException):
+    """General tracing error."""
+
+class SpanContextError(TracingException):
+    """Error with span context propagation."""

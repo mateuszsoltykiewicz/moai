@@ -1,5 +1,10 @@
-from . import CoreException
+from .base import AppLibException
 
-class DatabaseException(CoreException):
-    """Base exception for database-related errors."""
-    pass
+class DatabaseException(AppLibException):
+    """General database error."""
+
+class DatabaseConnectionError(DatabaseException):
+    """Failed to connect to database."""
+
+class DatabaseQueryError(DatabaseException):
+    """Database query failed."""

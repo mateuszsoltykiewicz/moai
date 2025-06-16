@@ -1,5 +1,10 @@
-from . import CoreException
+from .base import AppLibException
 
-class MTLSException(CoreException):
-    """Raised for mTLS/certificate errors."""
-    pass
+class mTLSException(AppLibException):
+    """General mTLS/certificate error."""
+
+class CertificateExpiredError(mTLSException):
+    """Certificate has expired."""
+
+class CertificateValidationError(mTLSException):
+    """Certificate validation failed."""

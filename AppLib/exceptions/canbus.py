@@ -1,5 +1,13 @@
-from . import CoreException
+from .base import AppLibException
 
-class CANBusException(CoreException):
-    """Base exception for CANBus adapter errors."""
-    pass
+class CANBusException(AppLibException):
+    """General CAN bus error."""
+
+class CANBusConnectionError(CANBusException):
+    """Failed to connect to CAN bus."""
+
+class CANBusTimeoutError(CANBusException):
+    """CAN bus operation timed out."""
+
+class CANBusProtocolError(CANBusException):
+    """Protocol error in CAN message."""
