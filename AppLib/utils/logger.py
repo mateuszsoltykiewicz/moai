@@ -61,10 +61,8 @@ def configure_logging(config_path: Optional[str] = None):
     
     logging.config.dictConfig(config)
 
-
 def get_logger(name: str) -> logging.Logger:
     """
     Get a logger for the given module/service.
     """
     return logging.getLogger(name)
-

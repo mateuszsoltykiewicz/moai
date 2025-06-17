@@ -1,16 +1,9 @@
 """
-Production-ready configuration validator.
-
-- Validates JSON configs against JSON Schema.
-- Supports validation for all service configs.
-- Raises clear errors for invalid configs.
-"""
-
-"""
 Production-ready configuration validator for AppLib.
 
 - Validates JSON configs against JSON Schema (Draft 2020-12).
 - Raises clear errors for invalid configs.
+- Can be used in CI/CD, service startup, or CLI tools.
 """
 
 import json
@@ -47,18 +40,16 @@ def validate_config_file(config_path: str, schema_path: str, config_name: str = 
     schema = load_json(schema_path)
     validate_config(config, schema, config_name)
 
-
-"""
-from AppLib.utils.config_validator import validate_config_file, ConfigValidationError
-
-try:
-    validate_config_file(
-        "configs/dev/database.json",
-        "schemas/validation/database.schema.json",
-        config_name="Database Config"
-    )
-except ConfigValidationError as e:
-    print(e)
-    exit(1)
-
-"""
+# Example usage (for CLI or tests):
+if __name__ == "__main__":
+    import sys
+    try:
+        validate_config_file(
+            sys.argv[1],  # config_path
+            sys.argv[2],  # schema_path
+            config_name=sys.argv[3] if len(sys.argv) > 3 else "Config"
+        )
+        print("Config validation succeeded.")
+    except ConfigValidationError as e:
+        print(e)
+        exit(1)

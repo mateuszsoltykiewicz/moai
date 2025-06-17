@@ -1,12 +1,30 @@
-from typing import Any, Dict
 from pydantic import BaseModel, Field
+from typing import Dict, Any
 
-class DatabaseRecordCreate(BaseModel):
-    data: Dict[str, Any] = Field(..., description="Record data")
+class ConfigResponseSchema(BaseModel):
+    config: Dict[str, Any] = Field(..., description="Current application configuration")
 
-class DatabaseRecordResponse(BaseModel):
-    id: str = Field(..., description="Record ID")
-    data: Dict[str, Any] = Field(..., description="Record data")
+    class Config:
+        schema_extra = {
+            "example": {
+                "config": {
+                    "database": {"host": "db.example.com", "port": 5432},
+                    "auth": {"enabled": True},
+                    "kafka": {"bootstrap_servers": "kafka:9092"}
+                }
+            }
+        }
 
-class DatabaseRecordUpdate(BaseModel):
-    data: Dict[str, Any] = Field(..., description="Updated record data")
+class ConfigUpdateRequest(BaseModel):
+    config: Dict[str, Any] = Field(..., description="New configuration to apply")
+    reason: str = Field(..., description="Reason for config update (for audit)")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "config": {
+                    "auth": {"enabled": False}
+                },
+                "reason": "Disabling auth for maintenance window"
+            }
+        }

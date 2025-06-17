@@ -1,15 +1,22 @@
-from typing import Optional
 from pydantic import BaseModel, Field
+from typing import Optional
+from enum import Enum
+
+class ServiceStatus(str, Enum):
+    OK = "ok"
+    DEGRADED = "degraded"
+    ERROR = "error"
 
 class HealthCheckSchema(BaseModel):
-    status: str = Field(..., description="Service health status, e.g. 'ok' or 'degraded'")
-    uptime_seconds: int = Field(..., description="Seconds since service start")
+    status: ServiceStatus = Field(..., description="Service health status: 'ok', 'degraded', or 'error'")
+    uptime_seconds: int = Field(..., ge=0, description="Seconds since service start")
     version: Optional[str] = Field(None, description="Service version string")
 
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {"status": "ok", "uptime_seconds": 12345, "version": "1.2.3"}
-            ]
+    class Config:
+        schema_extra = {
+            "example": {
+                "status": "ok",
+                "uptime_seconds": 12345,
+                "version": "1.2.3"
+            }
         }
-    }

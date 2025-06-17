@@ -1,34 +1,77 @@
+"""
+Async Kafka Session Manager
+
+- Manages async Kafka producer and consumer lifecycles.
+- Provides context manager and explicit start/stop methods.
+- Integrates with aiokafka for high-performance async messaging.
+"""
+
 from aiokafka import AIOKafkaProducer, AIOKafkaConsumer
-from confluent_kafka.admin import AdminClient, NewTopic, ConfigResource, ConfigResourceType
-from core.config import AsyncConfigManager
+from typing import Optional, List
+import logging
 
-_kafka_producer = None
+class KafkaSessionManager:
+    def __init__(
+        self,
+        bootstrap_servers: str,
+        group_id: Optional[str] = None,
+        security_protocol: str = "PLAINTEXT",
+        sasl_mechanism: Optional[str] = None,
+        sasl_plain_username: Optional[str] = None,
+        sasl_plain_password: Optional[str] = None,
+    ):
+        self.bootstrap_servers = bootstrap_servers
+        self.group_id = group_id
+        self.security_protocol = security_protocol
+        self.sasl_mechanism = sasl_mechanism
+        self.sasl_plain_username = sasl_plain_username
+        self.sasl_plain_password = sasl_plain_password
+        self.producer: Optional[AIOKafkaProducer] = None
+        self.consumer: Optional[AIOKafkaConsumer] = None
+        self.logger = logging.getLogger("KafkaSessionManager")
 
-async def get_kafka_producer():
-    global _kafka_producer
-    if _kafka_producer is None:
-        config = await AsyncConfigManager.get()
-        _kafka_producer = AIOKafkaProducer(
-            bootstrap_servers=config.kafka.bootstrap_servers
+    async def start_producer(self) -> AIOKafkaProducer:
+        self.producer = AIOKafkaProducer(
+            bootstrap_servers=self.bootstrap_servers,
+            security_protocol=self.security_protocol,
+            sasl_mechanism=self.sasl_mechanism,
+            sasl_plain_username=self.sasl_plain_username,
+            sasl_plain_password=self.sasl_plain_password,
         )
-        await _kafka_producer.start()
-    return _kafka_producer
+        await self.producer.start()
+        self.logger.info("Kafka producer started.")
+        return self.producer
 
-async def get_kafka_consumer(
-    topic: str, group_id: str, auto_commit: bool = True, offset_reset: str = "latest"
-):
-    config = await AsyncConfigManager.get()
-    consumer = AIOKafkaConsumer(
-        topic,
-        bootstrap_servers=config.kafka.bootstrap_servers,
-        group_id=group_id,
-        enable_auto_commit=auto_commit,
-        auto_offset_reset=offset_reset
-    )
-    await consumer.start()
-    return consumer
+    async def stop_producer(self):
+        if self.producer:
+            await self.producer.stop()
+            self.logger.info("Kafka producer stopped.")
 
-def get_admin_client():
-    # Synchronous for topic management
-    config = AsyncConfigManager.get_sync()
-    return AdminClient({'bootstrap.servers': config.kafka.bootstrap_servers})
+    async def start_consumer(self, topics: List[str]) -> AIOKafkaConsumer:
+        self.consumer = AIOKafkaConsumer(
+            *topics,
+            bootstrap_servers=self.bootstrap_servers,
+            group_id=self.group_id,
+            security_protocol=self.security_protocol,
+            sasl_mechanism=self.sasl_mechanism,
+            sasl_plain_username=self.sasl_plain_username,
+            sasl_plain_password=self.sasl_plain_password,
+            enable_auto_commit=True,
+            auto_offset_reset="earliest",
+        )
+        await self.consumer.start()
+        self.logger.info(f"Kafka consumer started for topics: {topics}")
+        return self.consumer
+
+    async def stop_consumer(self):
+        if self.consumer:
+            await self.consumer.stop()
+            self.logger.info("Kafka consumer stopped.")
+
+    async def __aenter__(self):
+        # Optionally start producer or consumer here if needed
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.stop_producer()
+        await self.stop_consumer()

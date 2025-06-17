@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
+from datetime import datetime
 
 class AlarmLevel(str, Enum):
     INFO = "info"
@@ -15,7 +16,7 @@ class Alarm(BaseModel):
     code: str = Field(..., description="Unique alarm code")
     message: str = Field(..., description="Human-readable description")
     level: AlarmLevel = Field(..., description="Severity level")
-    timestamp: Optional[str] = Field(None, description="ISO8601 timestamp")
+    timestamp: Optional[datetime] = Field(None, description="ISO8601 timestamp")
     details: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional context/details")
 
     class Config:
