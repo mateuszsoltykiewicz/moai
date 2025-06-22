@@ -1,0 +1,32 @@
+{
+  "app": {
+    "name": "production-api",
+    "serve_static": true
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "reload": false
+  },
+  "security": {
+    "https_redirect": true,
+    "tls": {
+      "enabled": true,
+      "cert_path": "/etc/ssl/certs/api.crt",
+      "key_path": "/etc/ssl/private/api.key"
+    }
+  },
+  "routers": {
+    "alarms": true,
+    "appstate": true,
+    "audit": true,
+    "auth": true,
+    "health": true,
+    "metrics": true,
+    "secrets": true
+  },
+  "logging": {
+    "fluentd_host": "fluentd.prod.svc",
+    "fluentd_port": 24224
+  }
+}

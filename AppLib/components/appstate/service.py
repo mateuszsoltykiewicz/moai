@@ -3,8 +3,8 @@ AppStateSubService integrates state management with other services
 """
 
 from AppLib.core.state import AppState
-from AppLib.subservices.base import SubServiceBase
-from AppLib.subservices.secrets.manager import SecretsManager
+from AppLib.components.base import SubServiceBase
+from AppLib.components.secrets.manager import SecretsManager
 
 class AppStateSubService(SubServiceBase):
     def __init__(self, secrets_manager: SecretsManager):

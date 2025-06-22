@@ -1,39 +1,17 @@
-from prometheus_client import Counter
-from utils.prometheus_instrumentation import REGISTRY
+from prometheus_client import Counter, Histogram
 
-SECRETS_CREATED = Counter(
-    "secrets_created_total",
-    "Total number of secrets created",
-    ["backend"],
-    registry=REGISTRY
-)
-SECRETS_RETRIEVED = Counter(
-    "secrets_retrieved_total",
-    "Total number of secrets retrieved",
-    ["backend"],
-    registry=REGISTRY
-)
-SECRETS_UPDATED = Counter(
-    "secrets_updated_total",
-    "Total number of secrets updated",
-    ["backend"],
-    registry=REGISTRY
-)
-SECRETS_DELETED = Counter(
-    "secrets_deleted_total",
-    "Total number of secrets deleted",
-    ["backend"],
-    registry=REGISTRY
-)
-SECRETS_ERRORS = Counter(
-    "secrets_errors_total",
-    "Total number of secret management errors",
-    ["backend", "operation"],
-    registry=REGISTRY
+SECRETS_OPERATIONS = Counter(
+    "secrets_operations_total",
+    "Total secrets operations by type",
+    ["operation"]
 )
 
-def record_secret_created(backend: str):
-    SECRETS_CREATED.labels(backend=backend).inc()
+SECRETS_OPERATION_DURATION = Histogram(
+    "secrets_operation_duration_seconds",
+    "Duration of secrets operations by type",
+    ["operation"]
+)
 
-def record_secret_error(backend: str, operation: str):
-    SECRETS_ERRORS.labels(backend=backend, operation=operation).inc()
+def record_secrets_operation(operation: str, duration: float):
+    SECRETS_OPERATIONS.labels(operation=operation).inc()
+    SECRETS_OPERATION_DURATION.labels(operation=operation).observe(duration)

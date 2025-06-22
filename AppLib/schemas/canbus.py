@@ -63,3 +63,14 @@ class CANBusStatusResponse(BaseModel):
                 "active_filters": [{"can_id": 291, "can_mask": 2047}]
             }
         }
+
+class CANBusMessage(BaseModel):
+    timestamp: datetime
+    adapter_id: str
+    arbitration_id: int
+    List[int]
+    dlc: int = Field(..., description="Data Length Code")
+    is_extended_id: bool = False
+    is_remote_frame: bool = False
+    is_error_frame: bool = False
+    channel: Optional[str] = None

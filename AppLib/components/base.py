@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
-from AppLib.subservices.config.service import ConfigService
-from AppLib.subservices.event_engine import EventEngine
+from AppLib.components.config.service import ConfigService
+from AppLib.components.event_engine import EventEngine
 
 class BaseSubService(ABC):
     def __init__(

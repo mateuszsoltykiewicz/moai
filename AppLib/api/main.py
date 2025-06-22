@@ -1,205 +1,224 @@
 """
-Main FastAPI app for the platform.
+FastAPI Application Entry Point
 
-- Dynamically includes routers based on config (hot reload supported)
-- API versioning: all routes are under /api/v1/
-- Standardized error handling and security headers
-- Integrated with secrets and auth subservices
-- Ready for observability (tracing, metrics) and extension
+- Dynamic router inclusion based on configuration
+- TLS protection when enabled
+- RBAC integration
+- Comprehensive security headers
+- Structured logging and observability
+- Async lifespan management
+- Custom exception handling
 """
 
+import os
 import logging
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from core.logging import configure_logging
-from core.config import get_settings
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
 from prometheus_fastapi_instrumentator import Instrumentator
-from core.config import AsyncConfigManager
-from models.config import AppConfig
-from models.schemas import ErrorResponseSchema
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.jaeger.thrift import JaegerExporter
-from opentelemetry import trace
+from api.middleware.security import SecurityMiddleware
 
-# Import all routers (add as needed)
+# Import core modules
+from core.config import AsyncConfigManager, AppConfig
+from core.logging import configure_logging
+from exceptions.core import (
+    UnauthorizedError, ForbiddenError, 
+    NotFoundError, ValidationError,
+    ServiceUnavailableError
+)
+from api.dependencies import (
+    get_current_user, require_role, 
+    get_config_manager, endpoint_processor
+)
 from api.routers import (
-    alarms, appstate, audit, auth, canbus, config as config_router, database, events, health,
-    i2c, kafka, logging as logging_router, metrics, mtls, rate_limiting, secrets,
-    tracing, updates
+    alarms, appstate, audit, auth, canbus, config as config_router, 
+    database, events, health, i2c, kafka, logging as logging_router, 
+    metrics, mtls, rate_limiting, secrets, tracing, updates
 )
 
-# Import dependencies for secrets and auth initialization
-from api.dependencies import get_secrets_manager, get_auth_service
+logger = logging.getLogger("api.main")
 
-API_PREFIX = "/api/v1"
+# Dynamic router registry
+ROUTER_REGISTRY = {
+    "alarms": alarms.router,
+    "appstate": appstate.router,
+    "audit": audit.router,
+    "auth": auth.router,
+    "canbus": canbus.router,
+    "config": config_router.router,
+    "database": database.router,
+    "events": events.router,
+    "health": health.router,
+    "i2c": i2c.router,
+    "kafka": kafka.router,
+    "logging": logging_router.router,
+    "metrics": metrics.router,
+    "mtls": mtls.router,
+    "rate_limiting": rate_limiting.router,
+    "secrets": secrets.router,
+    "tracing": tracing.router,
+    "updates": updates.router
+}
 
-settings = get_settings()
-configure_logging(
-    service_name=settings.app_name,
-    fluentd_host=settings.fluentd_host,
-    fluentd_port=settings.fluentd_port
-)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Async context manager for application lifecycle"""
+    # Initialize configuration manager
+    config_mgr = AsyncConfigManager("configs/app_config.json", schema=AppConfig)
+    await config_mgr.start()
+    app.state.config_mgr = config_mgr
+    
+    # Initialize logging
+    config = await config_mgr.get()
+    configure_logging(
+        service_name=config.app.name,
+        fluentd_host=config.logging.fluentd_host,
+        fluentd_port=config.logging.fluentd_port
+    )
+    
+    logger.info("Application starting up")
+    
+    # Yield control to the application
+    yield
+    
+    # Shutdown procedures
+    await config_mgr.stop()
+    logger.info("Application shutting down")
 
-instrumentator = Instrumentator(
-    should_group_status_codes=False,
-    should_ignore_untemplated=True,
-    should_instrument_requests_inprogress=True,
-)
-instrumentator.instrument(app).expose(app, endpoint="/metrics")
-
-# Configure Jaeger exporter (or Zipkin, OTLP, etc.)
-jaeger_exporter = JaegerExporter(
-    agent_host_name="jaeger",  # set via env or config
-    agent_port=6831,
-)
-
-resource = Resource(attributes={"service.name": "my-fastapi-service"})
-provider = TracerProvider(resource=resource)
-processor = BatchSpanProcessor(jaeger_exporter)
-provider.add_span_processor(processor)
-trace.set_tracer_provider(provider)
-
-# --- Security Headers Middleware ---
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+def create_app() -> FastAPI:
+    """Factory function to create and configure FastAPI app"""
+    app = FastAPI(
+        title="AppLib API",
+        version="1.0.0",
+        docs_url="/docs",
+        openapi_url="/openapi.json",
+        redoc_url="/redoc",
+        lifespan=lifespan
+    )
+    
+    # Security headers middleware
+    @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next):
         response = await call_next(request)
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Content-Security-Policy"] = "default-src 'self'"
         return response
+    
+    # Logging middleware
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        logger.info(f"Request: {request.method} {request.url}")
+        response = await call_next(request)
+        logger.info(f"Response: {response.status_code}")
+        return response
+    
+    # Exception handlers
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": exc.detail}
+        )
+    
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(f"Unhandled exception: {str(exc)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal server error"}
+        )
+    
+    # Register custom exceptions
+    app.add_exception_handler(UnauthorizedError, http_exception_handler)
+    app.add_exception_handler(ForbiddenError, http_exception_handler)
+    app.add_exception_handler(NotFoundError, http_exception_handler)
+    app.add_exception_handler(ValidationError, http_exception_handler)
+    app.add_exception_handler(ServiceUnavailableError, http_exception_handler)
+    
+    # Apply middleware
+    app.add_middleware(SecurityMiddleware)
+    
+    return app
 
-# --- Standardized API Exception ---
-class APIException(Exception):
-    def __init__(self, status_code: int, message: str, details: dict = None):
-        self.status_code = status_code
-        self.message = message
-        self.details = details or {}
+app = create_app()
 
-async def api_exception_handler(request: Request, exc: APIException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content=ErrorResponseSchema(
-            error=exc.message,
-            details=exc.details
-        ).dict()
-    )
-
-# --- FastAPI App Initialization ---
-app = FastAPI(
-    title="Platform API",
-    version="1.0.0",
-    docs_url="/api/docs",
-    openapi_url="/api/openapi.json"
-)
-
-# --- Middleware ---
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production!
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-# Add tracing/logging/metrics middleware as needed
-
-# --- Optional Routers Mapping ---
-OPTIONAL_ROUTERS = {
-    "canbus": canbus.router,
-    "database": database.router,
-    "i2c": i2c.router,
-    "kafka": kafka.router,
-}
-
-# --- Always-Included Routers ---
-ALWAYS_INCLUDED_ROUTERS = [
-    (alarms.router, "alarms"),
-    (appstate.router, "appstate"),
-    (audit.router, "audit"),
-    (auth.router, "auth"),
-    (config_router.router, "config"),
-    (events.router, "events"),
-    (health.router, "health"),
-    (logging_router.router, "logging"),
-    (metrics.router, "metrics"),
-    (mtls.router, "mtls"),
-    (rate_limiting.router, "rate_limiting"),
-    (secrets.router, "secrets"),
-    (tracing.router, "tracing"),
-    (updates.router, "updates"),
-]
-
-def include_routers_from_config(app, routers_config):
-    """
-    Dynamically include/exclude routers based on config.
-    """
-    current_paths = {route.path for route in app.router.routes}
-    # Always-included routers
-    for router, tag in ALWAYS_INCLUDED_ROUTERS:
-        app.include_router(router, prefix=f"{API_PREFIX}/{tag}", tags=[tag])
-    # Optional routers
-    for name, router in OPTIONAL_ROUTERS.items():
-        router_paths = {route.path for route in router.routes}
-        if getattr(routers_config, name, False):
-            if not router_paths & current_paths:
-                app.include_router(router, prefix=f"{API_PREFIX}/{name}", tags=[name])
-        else:
-            app.router.routes = [
-                route for route in app.router.routes if route.path not in router_paths
-            ]
-    # Regenerate OpenAPI schema for docs
-    app.openapi_schema = None
-    app.openapi()
-
-# --- Startup Event: Load Config and Include Routers ---
 @app.on_event("startup")
-async def startup_event():
-    """
-    Initialize config manager, secrets manager, and auth service.
-    """
-    # Initialize config manager
-    app.state.config_mgr = AsyncConfigManager("configs/dev/app_config.json", schema=AppConfig)
-    await app.state.config_mgr.start()
+async def configure_app():
+    """Final app configuration after creation"""
+    config_mgr: AsyncConfigManager = app.state.config_mgr
+    config = await config_mgr.get()
+    
+    # Enable HTTPS redirection if configured
+    if config.security.https_redirect:
+        app.add_middleware(HTTPSRedirectMiddleware)
+        logger.info("HTTPS redirection enabled")
+    
+    # Include routers based on configuration
+    for router_name, router in ROUTER_REGISTRY.items():
+        if getattr(config.routers, router_name, False):
+            app.include_router(router)
+            logger.info(f"Included router: {router_name}")
+    
+    # Set up observability
+    Instrumentator().instrument(app).expose(app)
+    FastAPIInstrumentor.instrument_app(app)
+    
+    # Serve static files if configured
+    if config.app.serve_static:
+        app.mount("/static", StaticFiles(directory="static"), name="static")
+        logger.info("Static file serving enabled")
 
-    app.state.i2c_adapters = {}
+# Root endpoint with health check
+@app.get("/")
+async def root():
+    return {"status": "running", "version": app.version}
 
-    # Initialize secrets manager and auth service, store in app.state for global access
-    app.state.secrets_manager = await get_secrets_manager()
-    app.state.auth_service = await get_auth_service()
+# Example endpoint with RBAC and custom hooks
+@app.get("/protected",
+         dependencies=[Depends(require_role("admin"))],
+         responses={
+             200: {"description": "Successful response"},
+             403: {"description": "Forbidden"},
+             401: {"description": "Unauthorized"}
+         })
+async def protected_route(
+    context: dict = Depends(
+        lambda r: endpoint_processor(
+            r,
+            pre_hook="api.hooks.security.validate_request",
+            post_hook="api.hooks.audit.log_access"
+        )
+    )
+):
+    """Example protected route with RBAC and hooks"""
+    return {"message": "Access granted to protected resource"}
 
-    app_config = await app.state.config_mgr.get()
-    include_routers_from_config(app, app_config.routers)
-
-    # Register config change listener for hot reload
-    async def on_config_change(new_config):
-        include_routers_from_config(app, new_config.routers)
-    app.state.config_mgr.add_listener("router_manager", on_config_change)
-
-    logging.info("API started with dynamic router inclusion and secure subservices.")
-
-# --- Shutdown Event: Clean up config manager and secrets manager ---
-@app.on_event("shutdown")
-async def shutdown_event():
-    """
-    Clean up all background services and managers.
-    """
-    if hasattr(app.state, "secrets_manager"):
-        await app.state.secrets_manager.stop()
-    await app.state.config_mgr.stop()
-
-# --- Register Error Handler ---
-app.add_exception_handler(APIException, api_exception_handler)
-
-# --- Logging Setup ---
-logging.basicConfig(level=logging.INFO)
-
-
-app = FastAPI()
-FastAPIInstrumentor.instrument_app(app)
+if __name__ == "__main__":
+    import uvicorn
+    
+    # Get configuration for server settings
+    config_mgr = AsyncConfigManager("configs/app_config.json", schema=AppConfig)
+    config = config_mgr.get()
+    
+    ssl_params = {}
+    if config.security.tls.enabled:
+        ssl_params = {
+            "ssl_keyfile": config.security.tls.key_path,
+            "ssl_certfile": config.security.tls.cert_path
+        }
+    
+    uvicorn.run(
+        "api.main:app",
+        host=config.server.host,
+        port=config.server.port,
+        reload=config.server.reload,
+        **ssl_params
+    )

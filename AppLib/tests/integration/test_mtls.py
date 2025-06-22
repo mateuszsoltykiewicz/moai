@@ -1,5 +1,5 @@
 import pytest
-from subservices.mtls.service import MTLSService, MTLSException
+from components.mtls.service import MTLSService, MTLSException
 
 def test_mtls_disabled_returns_none():
     svc = MTLSService(enabled=False)

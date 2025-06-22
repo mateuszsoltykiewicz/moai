@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Dict, Any
+from uuid import UUID
 
 class ConfigResponseSchema(BaseModel):
     config: Dict[str, Any] = Field(..., description="Current application configuration")
@@ -28,3 +29,10 @@ class ConfigUpdateRequest(BaseModel):
                 "reason": "Disabling auth for maintenance window"
             }
         }
+
+class DatabaseRecordCreate(BaseModel):
+     dict = Field(..., example={"key": "value"})
+
+class DatabaseRecordResponse(BaseModel):
+    id: UUID
+    dict

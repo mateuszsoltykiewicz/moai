@@ -1,7 +1,11 @@
 from pydantic import BaseModel, Field
-from .infra import KafkaConfig, DatabaseConfig
-from .auth import VaultConfig, KeycloakConfig, AuthConfig
-from .api import PersistenceConfig, RoutersConfig
+from .auth import KeycloakConfig, OAuthConfig
+from .api import RoutersConfig
+from .security import SecurityConfig
+from .kafka import KafkaConfig
+from .database import DatabaseConfig
+from .state import PersistenceConfig
+from .vault import VaultConfig
 
 class AppConfig(BaseModel):
     kafka: KafkaConfig
@@ -11,7 +15,8 @@ class AppConfig(BaseModel):
     keycloak: KeycloakConfig
     environment: str = Field(default="dev")
     routers: RoutersConfig = Field(default_factory=RoutersConfig)
-    auth: AuthConfig = Field(default_factory=AuthConfig)
+    auth: OAuthConfig = Field(default_factory=OAuthConfig)
+    security: SecurityConfig = SecurityConfig()
 
     class Config:
         schema_extra = {
@@ -64,7 +69,8 @@ __all__ = [
     'DatabaseConfig',
     'VaultConfig',
     'KeycloakConfig',
-    'AuthConfig',
+    'OAuthConfig',
     'PersistenceConfig',
-    'RoutersConfig'
+    'RoutersConfig',
+    'SecurityConfig'
 ]

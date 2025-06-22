@@ -1,55 +1,54 @@
 """
-Events API Router
+Production-Grade Events API Router
 
-- Publish/query events (Kafka or other event backend)
-- Register webhooks for topics (with filtering)
-- Deliver events to webhooks on publish
-- All endpoints are async, schema-driven, and secured
+- Secure event publishing to Kafka
+- Webhook registration with persistent storage
+- Configurable RBAC
+- Pre/post hooks for validation and auditing
+- Comprehensive observability (tracing, metrics, logging)
+- Async background task processing
 """
 
-from fastapi import APIRouter, Depends, status, Query, Request, BackgroundTasks
-from typing import List, Optional, Dict, Any
-from models.schemas import (
-    EventPublishRequest, EventPublishResponse,
-    EventRecord, EventListResponse,
-    WebhookSubscriptionRequest, WebhookSubscriptionResponse,
+from fastapi import ( 
+  APIRouter, 
+  Depends, 
+  status, 
+  Body, 
+  Request, 
+  BackgroundTasks, 
+  Query, 
+  HTTPException )
+from typing import List, Dict, Any, Optional
+from uuid import UUID
+from core.tracing import AsyncTracer
+from metrics.events import record_event_operation
+from core.logging import logger
+from api.dependencies import base_endpoint_processor, require_role, get_db_session
+from services.events import EventService, WebhookService
+from schemas.events import (
+    EventPublishRequest,
+    EventPublishResponse,
+    EventRecordResponse,
+    EventListResponse,
+    WebhookSubscriptionRequest,
+    WebhookSubscriptionResponse,
     WebhookEventDeliveryResponse
 )
-from api.dependencies import get_current_user
-from api.main import APIException
-from sessions.kafka import get_kafka_producer, get_kafka_consumer
-import httpx
+from exceptions.core import ServiceUnavailableError, NotFoundError
+import time
 import json
 
-router = APIRouter(tags=["events"])
+tracer = AsyncTracer("applib-events").get_tracer()
 
-# In-memory registry for webhooks: {topic: [ {url, filter}, ... ]}
-WEBHOOK_REGISTRY: Dict[str, List[Dict[str, Any]]] = {}
-
-def event_matches_filter(event_value: Dict[str, Any], filter_: Optional[Dict[str, Any]]) -> bool:
-    """Simple filter: all key-value pairs in filter_ must match event_value"""
-    if not filter_:
-        return True
-    for k, v in filter_.items():
-        if event_value.get(k) != v:
-            return False
-    return True
-
-async def deliver_event_to_webhooks(topic: str, event: Dict[str, Any], background_tasks: BackgroundTasks):
-    """Deliver event to all registered webhooks for the topic, applying filters."""
-    for webhook in WEBHOOK_REGISTRY.get(topic, []):
-        if event_matches_filter(event["value"], webhook.get("filter")):
-            background_tasks.add_task(send_webhook, webhook["url"], event)
-
-async def send_webhook(url: str, event: Dict[str, Any]):
-    """Send event to webhook endpoint asynchronously."""
-    async with httpx.AsyncClient() as client:
-        try:
-            resp = await client.post(url, json=event, timeout=10)
-            resp.raise_for_status()
-        except Exception as e:
-            # In production, log or alert on failed webhook deliveries
-            pass
+router = APIRouter(
+    prefix="/events",
+    tags=["events"],
+    responses={
+        403: {"description": "Forbidden"},
+        404: {"description": "Not found"},
+        503: {"description": "Service unavailable"}
+    }
+)
 
 @router.post(
     "/publish",
@@ -58,106 +57,222 @@ async def send_webhook(url: str, event: Dict[str, Any]):
     summary="Publish an event"
 )
 async def publish_event(
-    req: EventPublishRequest,
     background_tasks: BackgroundTasks,
-    user=Depends(get_current_user)
+    req: EventPublishRequest = Body(...),
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="events:publish",
+            pre_hook="api.hooks.events.validate_event_publish",
+            post_hook="api.hooks.events.audit_event_publish",
+            dependencies=[Depends(require_role("events.publish"))]
+        )
+    ),
+    db=Depends(get_db_session)
 ):
     """
-    Publish an event to the event streaming system (e.g., Kafka) and trigger webhooks.
+    Publish an event to the event streaming system
+    - RBAC: events.publish
+    - Pre-hook: Validate event structure
+    - Post-hook: Audit event publishing
+    - Webhook delivery via background tasks
     """
+    start_time = time.monotonic()
     try:
-        producer = await get_kafka_producer()
-        value_bytes = json.dumps(req.value).encode("utf-8")
-        key_bytes = req.key.encode("utf-8") if req.key else None
-        await producer.send_and_wait(req.topic, value=value_bytes, key=key_bytes)
-        # Deliver to registered webhooks (fire-and-forget)
-        event_dict = {"topic": req.topic, "key": req.key, "value": req.value}
-        await deliver_event_to_webhooks(req.topic, event_dict, background_tasks)
-        return EventPublishResponse(success=True, message="Event published and webhooks triggered.")
-    except Exception as e:
-        raise APIException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Failed to publish event.",
-            details={"error": str(e)}
+        # Pre-hook validation
+        if "validation_result" in context and not context["validation_result"].get("valid", True):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=context["validation_result"].get("message", "Validation failed")
+            )
+        
+        with tracer.start_as_current_span("event_publish"):
+            # Publish to Kafka
+            event_service = EventService(db)
+            await event_service.publish(
+                topic=req.topic,
+                key=req.key,
+                value=req.value
+            )
+            
+            # Trigger webhook delivery
+            webhook_service = WebhookService(db)
+            background_tasks.add_task(
+                webhook_service.deliver_to_webhooks,
+                topic=req.topic,
+                event_data={
+                    "topic": req.topic,
+                    "key": req.key,
+                    "value": req.value
+                }
+            )
+        
+        duration = time.monotonic() - start_time
+        record_event_operation("publish", duration)
+        logger.info(f"Event published to {req.topic} in {duration:.3f}s")
+        
+        return EventPublishResponse(
+            success=True,
+            message="Event published and webhooks triggered"
+        )
+    except ServiceUnavailableError:
+        logger.error("Event publishing service unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Event service is currently unavailable"
         )
 
 @router.get(
-    "/list",
+    "",
     response_model=EventListResponse,
     summary="List recent events"
 )
 async def list_events(
     topic: str = Query(..., description="Event topic"),
-    key: Optional[str] = Query(None, description="Filter by event key"),
+    key_filter: Optional[str] = Query(None, description="Filter by event key"),
     value_filter: Optional[str] = Query(None, description="JSON-encoded filter for event payload"),
     limit: int = Query(10, ge=1, le=100, description="Max number of events to fetch"),
-    user=Depends(get_current_user)
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="events:list",
+            dependencies=[Depends(require_role("events.read"))]
+        )
+    ),
+    db=Depends(get_db_session)
 ):
     """
-    List recent events from a topic (using Kafka consumer), with optional filtering.
+    List recent events from a topic
+    - RBAC: events.read
+    - Supports filtering by key and value
     """
+    start_time = time.monotonic()
     try:
-        consumer = await get_kafka_consumer(topic)
-        events = []
-        async for msg in consumer:
-            value = json.loads(msg.value)
-            if key and (msg.key is None or msg.key.decode("utf-8") != key):
-                continue
-            if value_filter:
-                filter_dict = json.loads(value_filter)
-                if not event_matches_filter(value, filter_dict):
-                    continue
-            events.append(EventRecord(
-                topic=msg.topic,
-                key=msg.key.decode("utf-8") if msg.key else None,
-                value=value,
-                offset=msg.offset,
-                partition=msg.partition,
-                timestamp=msg.timestamp
-            ))
-            if len(events) >= limit:
-                break
-        await consumer.stop()
+        with tracer.start_as_current_span("event_list"):
+            event_service = EventService(db)
+            events = await event_service.list_events(
+                topic=topic,
+                key_filter=key_filter,
+                value_filter=json.loads(value_filter) if value_filter else None,
+                limit=limit
+            )
+        
+        duration = time.monotonic() - start_time
+        record_event_operation("list", duration, count=len(events))
+        logger.info(f"Listed {len(events)} events from {topic} in {duration:.3f}s")
+        
         return EventListResponse(events=events)
-    except Exception as e:
-        raise APIException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Failed to list events.",
-            details={"error": str(e)}
+    except ServiceUnavailableError:
+        logger.error("Event listing service unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Event service is currently unavailable"
         )
 
 @router.post(
-    "/webhook/subscribe",
+    "/webhooks",
     response_model=WebhookSubscriptionResponse,
     summary="Register a webhook for a topic"
 )
 async def subscribe_webhook(
-    req: WebhookSubscriptionRequest,
-    user=Depends(get_current_user)
+    req: WebhookSubscriptionRequest = Body(...),
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="events:webhook_subscribe",
+            dependencies=[Depends(require_role("events.webhook.manage"))]
+        )
+    ),
+    db=Depends(get_db_session)
 ):
     """
-    Register a webhook endpoint for a topic, with optional filtering.
+    Register a webhook endpoint for a topic
+    - RBAC: events.webhook.manage
+    - Persistent storage of webhook config
     """
-    topic = req.topic
-    webhook = {"url": str(req.url), "filter": req.filter}
-    if topic not in WEBHOOK_REGISTRY:
-        WEBHOOK_REGISTRY[topic] = []
-    # Prevent duplicate registration
-    if webhook not in WEBHOOK_REGISTRY[topic]:
-        WEBHOOK_REGISTRY[topic].append(webhook)
-    return WebhookSubscriptionResponse(success=True, message="Webhook subscribed.")
+    start_time = time.monotonic()
+    try:
+        with tracer.start_as_current_span("webhook_subscribe"):
+            webhook_service = WebhookService(db)
+            subscription = await webhook_service.create_subscription(
+                topic=req.topic,
+                url=req.url,
+                user_id=context["user"].sub,
+                filters=req.filter
+            )
+        
+        duration = time.monotonic() - start_time
+        record_event_operation("webhook_subscribe", duration)
+        logger.info(f"Webhook registered for {req.topic} in {duration:.3f}s")
+        
+        return WebhookSubscriptionResponse(
+            success=True,
+            subscription_id=subscription.id,
+            message="Webhook subscribed"
+        )
+    except ServiceUnavailableError:
+        logger.error("Webhook service unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook service is currently unavailable"
+        )
+
+@router.delete(
+    "/webhooks/{subscription_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Unregister a webhook"
+)
+async def unsubscribe_webhook(
+    subscription_id: UUID,
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="events:webhook_unsubscribe",
+            dependencies=[Depends(require_role("events.webhook.manage"))]
+        )
+    ),
+    db=Depends(get_db_session)
+):
+    """
+    Unregister a webhook subscription
+    - RBAC: events.webhook.manage
+    """
+    start_time = time.monotonic()
+    try:
+        with tracer.start_as_current_span("webhook_unsubscribe"):
+            webhook_service = WebhookService(db)
+            await webhook_service.delete_subscription(subscription_id, context["user"].sub)
+        
+        duration = time.monotonic() - start_time
+        record_event_operation("webhook_unsubscribe", duration)
+        logger.info(f"Webhook {subscription_id} unsubscribed in {duration:.3f}s")
+    except NotFoundError:
+        logger.warning(f"Webhook {subscription_id} not found for deletion")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Webhook subscription not found"
+        )
+    except ServiceUnavailableError:
+        logger.error("Webhook service unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Webhook service is currently unavailable"
+        )
 
 @router.post(
-    "/webhook",
+    "/webhooks/test",
     response_model=WebhookEventDeliveryResponse,
-    summary="Webhook endpoint (for testing, not for production use)"
+    summary="Test webhook endpoint (internal use)",
+    include_in_schema=False  # Hide from public docs
 )
-async def webhook_endpoint(
+async def test_webhook_endpoint(
     request: Request
 ):
     """
-    Example webhook endpoint to receive events (for testing).
+    Internal webhook testing endpoint
+    - Not exposed in public API docs
+    - For development and testing purposes
     """
     payload = await request.json()
-    # In production, validate signature, log, or process event as needed
+    logger.debug(f"Test webhook received payload: {payload}")
     return WebhookEventDeliveryResponse(status="ok")

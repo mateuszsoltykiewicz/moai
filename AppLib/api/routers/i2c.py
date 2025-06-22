@@ -1,26 +1,47 @@
-from fastapi import APIRouter, Depends, status, Request
-from typing import Dict
-from models.schemas import (
+"""
+I2C API Router
+
+- Configurable RBAC (via require_role)
+- Pre/post custom hooks for validation/audit
+- Default executions
+- Comprehensive metrics and telemetry
+- Structured logging
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
+from typing import Dict, Any
+from schemas.i2c import (
     I2CCommandConfigRequest,
     I2CCommandQueueRequest,
     I2CCommandResponse
 )
-from core.exceptions import I2CException
+from ..dependencies.base import base_endpoint_processor
+from ..dependencies.security import require_role
+from metrics.i2c import record_i2c_operation
+from core.tracing import AsyncTracer
+from core.logging import logger
 from adapters.i2c import I2CAdapter
-from api.dependencies import get_current_user
-from api.main import APIException
+import time
 
-router = APIRouter(tags=["i2c"])
+tracer = AsyncTracer("applib-i2c").get_tracer()
 
-def get_adapter(request: Request, adapter_id: str) -> I2CAdapter:
-    """Get or create I2C adapter from app state"""
-    if not hasattr(request.app.state, "i2c_adapters"):
-        request.app.state.i2c_adapters = {}
-    
-    adapters = request.app.state.i2c_adapters
-    if adapter_id not in adapters:
-        adapters[adapter_id] = I2CAdapter(adapter_id)
-    return adapters[adapter_id]
+router = APIRouter(
+    prefix="/i2c",
+    tags=["i2c"],
+    responses={
+        403: {"description": "Forbidden"},
+        404: {"description": "Not found"},
+        422: {"description": "Validation error"}
+    }
+)
+
+# In-memory adapter registry (replace with DI/persistent store in production)
+I2C_ADAPTERS: Dict[str, I2CAdapter] = {}
+
+def get_adapter(adapter_id: str) -> I2CAdapter:
+    if adapter_id not in I2C_ADAPTERS:
+        I2C_ADAPTERS[adapter_id] = I2CAdapter(adapter_id)
+    return I2C_ADAPTERS[adapter_id]
 
 @router.post(
     "/start/{adapter_id}",
@@ -29,108 +50,143 @@ def get_adapter(request: Request, adapter_id: str) -> I2CAdapter:
 )
 async def start_adapter(
     adapter_id: str,
-    request: Request,
-    user=Depends(get_current_user)
-):
-    try:
-        adapter = get_adapter(request, adapter_id)
-        await adapter.start()
-        return I2CCommandResponse(
-            success=True,
-            message=f"I2C adapter {adapter_id} started",
-            details={"status": "running"}
+    req: I2CCommandConfigRequest = Body(...),
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="i2c:start",
+            pre_hook="api.hooks.i2c.before_start",
+            post_hook="api.hooks.i2c.after_start",
+            dependencies=[Depends(require_role("i2c.start"))]
         )
-    except I2CException as e:
-        raise APIException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=str(e)
-        )
-
-@router.post(
-    "/stop/{adapter_id}",
-    response_model=I2CCommandResponse,
-    summary="Stop I2C adapter"
-)
-async def stop_adapter(
-    adapter_id: str,
-    request: Request,
-    user=Depends(get_current_user)
-):
-    try:
-        adapter = get_adapter(request, adapter_id)
-        await adapter.stop()
-        return I2CCommandResponse(
-            success=True,
-            message=f"I2C adapter {adapter_id} stopped",
-            details={"status": "stopped"}
-        )
-    except I2CError as e:
-        raise APIException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=str(e)
-        )
-
-@router.get(
-    "/health/{adapter_id}",
-    response_model=I2CCommandResponse,
-    summary="I2C adapter health check"
-)
-async def i2c_health_check(
-    adapter_id: str,
-    request: Request,
-    user=Depends(get_current_user)
-):
-    adapter = get_adapter(request, adapter_id)
-    healthy = await adapter.health_check()
-    return I2CCommandResponse(
-        success=healthy,
-        message="Healthy" if healthy else "Unhealthy",
-        details={"status": "healthy" if healthy else "unhealthy"}
     )
-
-# Existing configure and queue endpoints with Request injection
-@router.post(
-    "/command/configure",
-    response_model=I2CCommandResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Configure I2C GPIO pin"
-)
-async def configure_i2c_command(
-    config: I2CCommandConfigRequest,
-    request: Request,
-    user=Depends(get_current_user)
 ):
+    """
+    Start/configure an I2C adapter.
+    - RBAC via 'i2c.start'
+    - Pre/post hooks for validation/audit
+    - Metrics and tracing
+    """
+    start_time = time.monotonic()
     try:
-        adapter = get_adapter(request, config.adapter_id)
-        await adapter.configure_gpio(
-            gpio_pin=config.gpio_pin,
-            mode=config.mode,
-            initial_state=config.initial_state
-        )
-        return I2CCommandResponse(success=True, message="I2C GPIO configured")
-    except I2CError as e:
-        raise APIException(
+        # Pre-hook validation
+        if "validation_result" in context and not context["validation_result"].get("valid", True):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=context["validation_result"].get("message", "Validation failed")
+            )
+        with tracer.start_as_current_span("i2c_start"):
+            adapter = get_adapter(adapter_id)
+            await adapter.configure(
+                frequency=req.frequency,
+                address=req.address,
+                options=req.options
+            )
+            response = I2CCommandResponse(
+                adapter_id=adapter_id,
+                success=True,
+                message="I2C adapter started"
+            )
+        duration = time.monotonic() - start_time
+        record_i2c_operation("start", duration)
+        logger.info(f"I2C adapter {adapter_id} started in {duration:.3f}s")
+        return response
+    except Exception as e:
+        logger.error(f"I2C start failed: {str(e)}")
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=str(e)
+            detail=f"Failed to start I2C adapter: {str(e)}"
         )
 
 @router.post(
-    "/command/queue",
+    "/queue/{adapter_id}",
     response_model=I2CCommandResponse,
-    status_code=status.HTTP_200_OK,
     summary="Queue I2C commands"
 )
 async def queue_i2c_commands(
-    request_data: I2CCommandQueueRequest,
-    request: Request,
-    user=Depends(get_current_user)
+    adapter_id: str,
+    req: I2CCommandQueueRequest = Body(...),
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="i2c:queue",
+            pre_hook="api.hooks.i2c.before_queue",
+            post_hook="api.hooks.i2c.after_queue",
+            dependencies=[Depends(require_role("i2c.queue"))]
+        )
+    )
 ):
+    """
+    Queue commands for an I2C adapter.
+    - RBAC via 'i2c.queue'
+    - Pre/post hooks for validation/audit
+    - Metrics and tracing
+    """
+    start_time = time.monotonic()
     try:
-        adapter = get_adapter(request, request_data.adapter_id)
-        await adapter.queue_commands(request_data.commands)
-        return I2CCommandResponse(success=True, message="Commands queued")
-    except I2CError as e:
-        raise APIException(
+        if "validation_result" in context and not context["validation_result"].get("valid", True):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=context["validation_result"].get("message", "Validation failed")
+            )
+        with tracer.start_as_current_span("i2c_queue"):
+            adapter = get_adapter(adapter_id)
+            results = await adapter.queue_commands(req.commands)
+            response = I2CCommandResponse(
+                adapter_id=adapter_id,
+                success=True,
+                message="Commands queued",
+                data=results
+            )
+        duration = time.monotonic() - start_time
+        record_i2c_operation("queue", duration)
+        logger.info(f"Queued {len(req.commands)} commands for I2C adapter {adapter_id} in {duration:.3f}s")
+        return response
+    except Exception as e:
+        logger.error(f"I2C queue failed: {str(e)}")
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message=str(e)
+            detail=f"Failed to queue I2C commands: {str(e)}"
+        )
+
+@router.get(
+    "/status/{adapter_id}",
+    response_model=I2CCommandResponse,
+    summary="Get I2C adapter status"
+)
+async def get_i2c_status(
+    adapter_id: str,
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="i2c:status",
+            dependencies=[Depends(require_role("i2c.read"))]
+        )
+    )
+):
+    """
+    Get the current status of an I2C adapter.
+    - RBAC via 'i2c.read'
+    - Metrics and tracing
+    """
+    start_time = time.monotonic()
+    try:
+        with tracer.start_as_current_span("i2c_status"):
+            adapter = get_adapter(adapter_id)
+            status = await adapter.get_status()
+            response = I2CCommandResponse(
+                adapter_id=adapter_id,
+                success=True,
+                message="I2C adapter status fetched",
+                data=status
+            )
+        duration = time.monotonic() - start_time
+        record_i2c_operation("status", duration)
+        logger.info(f"Fetched status for I2C adapter {adapter_id} in {duration:.3f}s")
+        return response
+    except Exception as e:
+        logger.error(f"I2C status failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get I2C adapter status: {str(e)}"
         )

@@ -1,28 +1,19 @@
-"""
-Health and readiness endpoint utilities.
+import time
+from typing import Callable, Dict, Any, Awaitable
 
-- Aggregate health status from dependencies.
-- Expose /health and /ready endpoints.
-"""
+class HealthCheckRegistry:
+    def __init__(self):
+        self._checks = {}
 
-from typing import Dict, Callable
+    def register(self, name: str, func: Callable[[], Awaitable[Dict[str, Any]]]):
+        self._checks[name] = func
 
-def basic_health_check() -> Dict:
-    return {"status": "ok"}
+    def get_checks(self):
+        return self._checks
 
-def aggregate_health_checks(checks: Dict[str, Callable[[], Dict]]) -> Dict:
-    """
-    Run all health checks and aggregate results.
-    """
-    status = "ok"
-    results = {}
-    for name, check in checks.items():
-        try:
-            result = check()
-            if result.get("status") != "ok":
-                status = "degraded"
-            results[name] = result
-        except Exception as exc:
-            status = "error"
-            results[name] = {"status": "error", "error": str(exc)}
-    return {"status": status, "checks": results}
+health_registry = HealthCheckRegistry()
+
+# Example registration at app startup:
+# from api.utils.health import health_registry
+# health_registry.register("database", check_database)
+# health_registry.register("redis", check_redis)

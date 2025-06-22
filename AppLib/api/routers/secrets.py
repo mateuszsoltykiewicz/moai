@@ -1,118 +1,124 @@
-from fastapi import APIRouter, Depends, status
-from typing import Optional
-from models.schemas import (
-    SecretCreateRequest, SecretUpdateRequest,
-    SecretResponse, SecretRetrieveResponse
-)
-from api.dependencies import get_current_user
-from api.main import APIException
-from adapters.vault import AsyncVaultAdapter
-from metrics.secrets import (
-    SECRETS_CREATED, SECRETS_RETRIEVED, SECRETS_UPDATED, SECRETS_DELETED, SECRETS_ERRORS
+"""
+Secrets API Router
+
+- Secure, RBAC-protected endpoints for secret rotation and retrieval
+- Integrates with Vault via SecretsManager
+- Pre/post hooks for auditing and validation
+- Observability (tracing, metrics, logging)
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
+from typing import Dict, Any
+from schemas.secrets import SecretUpdateRequest, SecretResponse
+from api.dependencies import base_endpoint_processor, require_role
+from core.metrics import record_secrets_operation
+from core.tracing import AsyncTracer
+from core.logging import logger
+from AppLib.services.secrets.manager import SecretsManager
+import time
+
+tracer = AsyncTracer("applib-secrets").get_tracer()
+
+router = APIRouter(
+    prefix="/secrets",
+    tags=["secrets"],
+    responses={
+        403: {"description": "Forbidden"},
+        404: {"description": "Not found"},
+        422: {"description": "Validation error"}
+    }
 )
 
-router = APIRouter(tags=["secrets"])
-BACKEND = "vault"
-
-def get_vault_adapter():
-    return AsyncVaultAdapter()
-
-@router.post(
-    "/",
-    response_model=SecretResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a new secret"
-)
-async def create_secret(
-    req: SecretCreateRequest,
-    user=Depends(get_current_user),
-    vault: AsyncVaultAdapter = Depends(get_vault_adapter)
-):
-    try:
-        existing = await vault.get_secret(req.name)
-        if existing:
-            SECRETS_ERRORS.labels(backend=BACKEND, operation="create").inc()
-            raise APIException(
-                status_code=status.HTTP_409_CONFLICT,
-                message="Secret with this name already exists."
-            )
-        await vault.set_secret(req.name, {"value": req.value, "description": req.description})
-        SECRETS_CREATED.labels(backend=BACKEND).inc()
-        return SecretResponse(name=req.name, description=req.description)
-    except Exception as e:
-        SECRETS_ERRORS.labels(backend=BACKEND, operation="create").inc()
-        raise
+def get_secrets_manager() -> SecretsManager:
+    # Should be initialized at app startup and injected via DI in production
+    # For demo, instantiate here (not recommended for real prod)
+    from core.config import AsyncConfigManager
+    import asyncio
+    config = asyncio.run(AsyncConfigManager("configs/app_config.json").get())
+    return SecretsManager(config.vault)
 
 @router.get(
-    "/{name}",
-    response_model=SecretRetrieveResponse,
-    summary="Retrieve a secret"
+    "/{path:path}",
+    response_model=SecretResponse,
+    summary="Retrieve secret"
 )
 async def get_secret(
-    name: str,
-    user=Depends(get_current_user),
-    vault: AsyncVaultAdapter = Depends(get_vault_adapter)
+    path: str,
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="secrets:get",
+            dependencies=[Depends(require_role("secrets.read"))]
+        )
+    ),
+    request: Request = None
 ):
+    """
+    Retrieve a secret from Vault.
+    - RBAC via 'secrets.read'
+    - Metrics and tracing
+    """
+    start_time = time.monotonic()
     try:
-        secret = await vault.get_secret(name)
-        if not secret:
-            SECRETS_ERRORS.labels(backend=BACKEND, operation="retrieve").inc()
-            raise APIException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message="Secret not found."
-            )
-        SECRETS_RETRIEVED.labels(backend=BACKEND).inc()
-        return SecretRetrieveResponse(name=name, value=secret["value"], description=secret.get("description"))
+        with tracer.start_as_current_span("secrets_get"):
+            secrets_manager = get_secrets_manager()
+            secret, version = await secrets_manager.get_secret(path)
+            response = SecretResponse(path=path, value=secret, version=version, updated=False)
+        duration = time.monotonic() - start_time
+        record_secrets_operation("get", duration)
+        logger.info(f"Secret retrieved at {path} by {context['user'].sub} in {duration:.3f}s")
+        return response
     except Exception as e:
-        SECRETS_ERRORS.labels(backend=BACKEND, operation="retrieve").inc()
-        raise
+        logger.error(f"Secret retrieval failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Secret not found: {str(e)}"
+        )
 
-@router.put(
-    "/{name}",
+@router.patch(
+    "/{path:path}",
     response_model=SecretResponse,
-    summary="Update a secret"
+    summary="Update/rotate secret"
 )
 async def update_secret(
-    name: str,
-    req: SecretUpdateRequest,
-    user=Depends(get_current_user),
-    vault: AsyncVaultAdapter = Depends(get_vault_adapter)
+    path: str,
+    req: SecretUpdateRequest = Body(...),
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="secrets:update",
+            pre_hook="api.hooks.secrets.before_update",
+            post_hook="api.hooks.secrets.after_update",
+            dependencies=[Depends(require_role("secrets.update"))]
+        )
+    ),
+    request: Request = None
 ):
+    """
+    Update or rotate a secret in Vault.
+    - RBAC via 'secrets.update'
+    - Pre/post hooks for validation/audit
+    - Metrics and tracing
+    """
+    start_time = time.monotonic()
     try:
-        secret = await vault.get_secret(name)
-        if not secret:
-            SECRETS_ERRORS.labels(backend=BACKEND, operation="update").inc()
-            raise APIException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message="Secret not found."
+        # Pre-hook validation
+        if "validation_result" in context and not context["validation_result"].get("valid", True):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=context["validation_result"].get("message", "Validation failed")
             )
-        await vault.set_secret(name, {"value": req.value, "description": req.description})
-        SECRETS_UPDATED.labels(backend=BACKEND).inc()
-        return SecretResponse(name=name, description=req.description)
+        with tracer.start_as_current_span("secrets_update"):
+            secrets_manager = get_secrets_manager()
+            updated_version = await secrets_manager.set_secret(path, req.value, version=req.version)
+            response = SecretResponse(path=path, value=req.value, version=updated_version, updated=True, message="Secret updated")
+        duration = time.monotonic() - start_time
+        record_secrets_operation("update", duration)
+        logger.info(f"Secret updated at {path} by {context['user'].sub} in {duration:.3f}s")
+        return response
     except Exception as e:
-        SECRETS_ERRORS.labels(backend=BACKEND, operation="update").inc()
-        raise
-
-@router.delete(
-    "/{name}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete a secret"
-)
-async def delete_secret(
-    name: str,
-    user=Depends(get_current_user),
-    vault: AsyncVaultAdapter = Depends(get_vault_adapter)
-):
-    try:
-        secret = await vault.get_secret(name)
-        if not secret:
-            SECRETS_ERRORS.labels(backend=BACKEND, operation="delete").inc()
-            raise APIException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message="Secret not found."
-            )
-        await vault.delete_secret(name)
-        SECRETS_DELETED.labels(backend=BACKEND).inc()
-    except Exception as e:
-        SECRETS_ERRORS.labels(backend=BACKEND, operation="delete").inc()
-        raise
+        logger.error(f"Secret update failed: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update secret: {str(e)}"
+        )

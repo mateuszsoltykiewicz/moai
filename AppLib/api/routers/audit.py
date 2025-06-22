@@ -1,119 +1,199 @@
 """
-Audit API Router with async DB integration.
+Audit API Router
 
-- Logs and queries audit events in a persistent database.
-- Uses SQLAlchemy async ORM and Pydantic schemas.
-- All endpoints are secured and support filtering.
+- Async DB integration with SQLAlchemy
+- Configurable security (RBAC)
+- Pre/post custom hooks
+- Default executions
+- Comprehensive metrics and telemetry
+- Structured logging
 """
 
-from fastapi import APIRouter, Depends, status, Query
-from sqlalchemy.future import select
-from sqlalchemy.exc import SQLAlchemyError
-from uuid import uuid4
+from fastapi import APIRouter, Depends, HTTPException, status, Body
+from typing import List, Dict, Any
+from uuid import UUID
 from datetime import datetime
-from typing import List, Optional
 
-from AppLib.models.schemas import AuditEvent, AuditEventCreate
-from AppLib.models.audit import AuditEventDB
-from db.session import get_db
-from api.dependencies import get_current_user
-from api.main import APIException
+from models.schemas.audit import AuditEventCreate, AuditEventResponse
+from api.dependencies import base_endpoint_processor, require_role, get_db_session
+from exceptions.core import NotFoundError, ServiceUnavailableError
+from core.audit import AuditService
+from core.metrics import record_audit_operation
+from core.tracing import AsyncTracer
+from core.logging import logger
 
-router = APIRouter(tags=["audit"])
+# Instantiate tracer globally or import a singleton if you have one
+tracer = AsyncTracer("applib-audit").get_tracer()
 
-@router.get(
-    "/",
-    response_model=List[AuditEvent],
-    summary="List audit events",
-    description="Retrieve audit events, optionally filtered by user or action."
+router = APIRouter(
+    prefix="/audit",
+    tags=["audit"],
+    responses={
+        403: {"description": "Forbidden"},
+        404: {"description": "Not Found"},
+        503: {"description": "Service Unavailable"}
+    }
 )
-async def list_audit_events(
-    user_filter: Optional[str] = Query(None, alias="user", description="Filter by user"),
-    action_filter: Optional[str] = Query(None, alias="action", description="Filter by action"),
-    limit: int = Query(100, ge=1, le=1000, description="Max number of events to return"),
-    db=Depends(get_db),
-    user=Depends(get_current_user)
-):
-    """
-    List audit events with optional filtering.
-    """
-    try:
-        stmt = select(AuditEventDB)
-        if user_filter:
-            stmt = stmt.where(AuditEventDB.user == user_filter)
-        if action_filter:
-            stmt = stmt.where(AuditEventDB.action == action_filter)
-        stmt = stmt.order_by(AuditEventDB.timestamp.desc()).limit(limit)
-        result = await db.execute(stmt)
-        events = result.scalars().all()
-        return [AuditEvent(**event.__dict__) for event in events]
-    except SQLAlchemyError as e:
-        raise APIException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Database error",
-            details={"error": str(e)}
-        )
 
 @router.post(
-    "/",
-    response_model=AuditEvent,
+    "",
+    response_model=AuditEventResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create audit event"
+    summary="Create a new audit event"
 )
 async def create_audit_event(
-    event: AuditEventCreate,
-    db=Depends(get_db),
-    user=Depends(get_current_user)
+    event: AuditEventCreate = Body(...),
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="audit:create",
+            pre_hook="api.hooks.audit.validate_audit_event",
+            post_hook="api.hooks.audit.log_audit_event",
+            dependencies=[Depends(require_role("audit.create"))]
+        )
+    ),
+    db=Depends(get_db_session)
 ):
     """
-    Create a new audit event.
+    Create a new audit event with:
+    - RBAC enforcement
+    - Validation and audit logging hooks
+    - Async DB persistence
+    - Tracing and metrics
     """
+    start_time = datetime.utcnow()
     try:
-        new_event = AuditEventDB(
-            id=str(uuid4()),
-            user=user.get("username", "unknown"),
-            action=event.action,
-            resource=event.resource,
-            timestamp=datetime.utcnow(),
-            details=event.details
+        # Pre-hook validation result
+        if "validation_result" in context and not context["validation_result"].get("valid", True):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=context["validation_result"].get("message", "Validation failed")
+            )
+
+        with tracer.start_as_current_span("audit_create"):
+            service = AuditService(db)
+            audit_event = await service.create_event(event, context["user"])
+
+        duration = (datetime.utcnow() - start_time).total_seconds()
+        record_audit_operation("create", duration)
+
+        logger.info(f"Audit event created by {context['user'].sub} in {duration:.3f}s")
+        return audit_event
+    except ServiceUnavailableError:
+        logger.error("Audit service unavailable during event creation")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Audit service is currently unavailable"
         )
-        db.add(new_event)
-        await db.commit()
-        await db.refresh(new_event)
-        return AuditEvent(**new_event.__dict__)
-    except SQLAlchemyError as e:
-        raise APIException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Database error",
-            details={"error": str(e)}
+
+@router.get(
+    "",
+    response_model=List[AuditEventResponse],
+    summary="List audit events"
+)
+async def list_audit_events(
+    user_filter: str = None,
+    action_filter: str = None,
+    limit: int = 100,
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="audit:list",
+            dependencies=[Depends(require_role("audit.read"))]
+        )
+    ),
+    db=Depends(get_db_session)
+):
+    """
+    List audit events with optional filtering and RBAC
+    """
+    start_time = datetime.utcnow()
+    try:
+        with tracer.start_as_current_span("audit_list"):
+            service = AuditService(db)
+            events = await service.list_events(user_filter, action_filter, limit, context["user"])
+
+        duration = (datetime.utcnow() - start_time).total_seconds()
+        record_audit_operation("list", duration, count=len(events))
+
+        logger.info(f"{len(events)} audit events listed by {context['user'].sub} in {duration:.3f}s")
+        return events
+    except ServiceUnavailableError:
+        logger.error("Audit service unavailable during list operation")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Audit service is currently unavailable"
         )
 
 @router.get(
     "/{event_id}",
-    response_model=AuditEvent,
+    response_model=AuditEventResponse,
     summary="Get audit event by ID"
 )
 async def get_audit_event(
-    event_id: str,
-    db=Depends(get_db),
-    user=Depends(get_current_user)
+    event_id: UUID,
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="audit:get",
+            dependencies=[Depends(require_role("audit.read"))]
+        )
+    ),
+    db=Depends(get_db_session)
 ):
     """
-    Retrieve a single audit event by its ID.
+    Retrieve a single audit event by ID with RBAC
     """
     try:
-        result = await db.execute(select(AuditEventDB).where(AuditEventDB.id == event_id))
-        event = result.scalar_one_or_none()
-        if not event:
-            raise APIException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                message="Audit event not found",
-                details={"event_id": event_id}
-            )
-        return AuditEvent(**event.__dict__)
-    except SQLAlchemyError as e:
-        raise APIException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            message="Database error",
-            details={"error": str(e)}
+        with tracer.start_as_current_span("audit_get"):
+            service = AuditService(db)
+            event = await service.get_event(event_id, context["user"])
+            if not event:
+                raise NotFoundError(f"Audit event {event_id} not found")
+        logger.info(f"Audit event {event_id} retrieved by {context['user'].sub}")
+        return event
+    except NotFoundError as ne:
+        logger.warning(str(ne))
+        raise HTTPException(status_code=404, detail=str(ne))
+    except ServiceUnavailableError:
+        logger.error("Audit service unavailable during get operation")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Audit service is currently unavailable"
+        )
+
+@router.delete(
+    "/{event_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete audit event by ID"
+)
+async def delete_audit_event(
+    event_id: UUID,
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="audit:delete",
+            dependencies=[Depends(require_role("audit.delete"))]
+        )
+    ),
+    db=Depends(get_db_session)
+):
+    """
+    Delete an audit event by ID with RBAC
+    """
+    try:
+        with tracer.start_as_current_span("audit_delete"):
+            service = AuditService(db)
+            deleted = await service.delete_event(event_id, context["user"])
+            if not deleted:
+                raise NotFoundError(f"Audit event {event_id} not found")
+        logger.info(f"Audit event {event_id} deleted by {context['user'].sub}")
+    except NotFoundError as ne:
+        logger.warning(str(ne))
+        raise HTTPException(status_code=404, detail=str(ne))
+    except ServiceUnavailableError:
+        logger.error("Audit service unavailable during delete operation")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Audit service is currently unavailable"
         )

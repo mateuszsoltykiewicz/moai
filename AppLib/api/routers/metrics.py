@@ -1,40 +1,52 @@
 """
 Metrics API Router
 
-- Exposes custom Prometheus metrics for internal dashboards (authenticated)
-- Prometheus /metrics endpoint is exposed globally via Instrumentator in main.py
-- Aggregates metrics from /metrics modules (adapters, database, kafka, app, etc.)
+- Prometheus metrics endpoint
+- Configurable RBAC (optional)
+- Pre/post hooks for custom metrics or audit
+- Default executions (Prometheus scrape)
+- Comprehensive structured logging
 """
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, Request, Response
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from api.dependencies import get_current_user
+from metrics.core import REGISTRY
+from core.tracing import AsyncTracer
+from core.logging import logger
+from api.dependencies import base_endpoint_processor, require_role
+from typing import Dict, Any
 
-# Import custom metrics from your metrics modules
-from metrics.adapters import (
-    I2C_COMMANDS_TOTAL, I2C_ERRORS_TOTAL,
-    CANBUS_MESSAGES_TOTAL, CANBUS_ERRORS_TOTAL
-)
-from metrics.database import DB_QUERIES_TOTAL, DB_ERRORS_TOTAL
-from metrics.kafka import (
-    KAFKA_MESSAGES_PRODUCED, KAFKA_MESSAGES_CONSUMED, KAFKA_ERRORS_TOTAL
-)
-from metrics.app import update_uptime
+tracer = AsyncTracer("applib-metrics").get_tracer()
 
-router = APIRouter(tags=["metrics"])
-
-@router.get(
-    "/custom",
-    summary="Custom Prometheus metrics (internal use)",
-    response_class=Response,
-    responses={200: {"content": {"text/plain": {}}}}
+router = APIRouter(
+    prefix="/metrics",
+    tags=["metrics"],
+    include_in_schema=False  # Hide from OpenAPI docs
 )
-async def custom_metrics(user=Depends(get_current_user)):
+
+@router.get("")
+async def prometheus_metrics(
+    context: Dict[str, Any] = Depends(
+        lambda r: base_endpoint_processor(
+            r,
+            endpoint_path="metrics:get",
+            pre_hook="api.hooks.metrics.before_metrics",
+            post_hook="api.hooks.metrics.after_metrics",
+            # Uncomment below to require RBAC for metrics endpoint (optional)
+            # dependencies=[Depends(require_role("metrics.read"))]
+        )
+    ),
+    request: Request = None
+):
     """
-    Expose custom application and hardware metrics (for internal dashboards).
+    Prometheus scrape endpoint with:
+    - Optional RBAC
+    - Pre/post hooks for custom metrics or audit
+    - Telemetry and logging
     """
-    # Update any dynamic metrics before scraping (e.g., uptime)
-    update_uptime()
-    data = generate_latest()
-    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+    with tracer.start_as_current_span("metrics_endpoint"):
+        logger.info("Serving Prometheus metrics scrape")
+        # Pre-hook can inject or modify metrics if needed via context
+        output = generate_latest(REGISTRY)
+        # Post-hook can audit or log scrape events
+        return Response(content=output, media_type=CONTENT_TYPE_LATEST)

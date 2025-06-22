@@ -1,22 +1,12 @@
 from pydantic import BaseModel, Field
-from typing import Optional
-from enum import Enum
+from typing import Dict, Any
 
-class ServiceStatus(str, Enum):
-    OK = "ok"
-    DEGRADED = "degraded"
-    ERROR = "error"
+class HealthCheckDetail(BaseModel):
+    status: str = Field(..., example="ok")
+    details: Dict[str, Any] = Field(default_factory=dict)
 
-class HealthCheckSchema(BaseModel):
-    status: ServiceStatus = Field(..., description="Service health status: 'ok', 'degraded', or 'error'")
-    uptime_seconds: int = Field(..., ge=0, description="Seconds since service start")
-    version: Optional[str] = Field(None, description="Service version string")
-
-    class Config:
-        schema_extra = {
-            "example": {
-                "status": "ok",
-                "uptime_seconds": 12345,
-                "version": "1.2.3"
-            }
-        }
+class HealthCheckResponse(BaseModel):
+    status: str = Field(..., example="ok")
+    checks: Dict[str, HealthCheckDetail]
+    uptime_seconds: int = Field(..., example=12345)
+    version: str = Field(..., example="1.2.3")

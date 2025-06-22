@@ -1,20 +1,12 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import List, Dict, Any
 
-class TracingStatusResponse(BaseModel):
-    enabled: bool = Field(..., description="Is distributed tracing enabled?")
-    exporter: Optional[str] = Field(None, description="Active tracing exporter (e.g., 'jaeger', 'otlp', 'zipkin')")
-    service_name: Optional[str] = Field(None, description="Service name for traces")
-    trace_id: Optional[str] = Field(None, description="Current trace ID, if available")
-    details: Optional[Dict[str, Any]] = Field(None, description="Additional tracing details or exporter config")
-
-    class Config:
-        schema_extra = {
-            "example": {
-                "enabled": True,
-                "exporter": "jaeger",
-                "service_name": "applib-core",
-                "trace_id": "c0ffee1234567890",
-                "details": {"sampling_rate": 1.0}
-            }
-        }
+class TraceInfo(BaseModel):
+    trace_id: str = Field(..., example="123abc")
+    span_id: str = Field(..., example="456def")
+    parent_span_id: str = Field(..., example="789ghi")
+    attributes: Dict[str, Any] = Field(default_factory=dict)
+    name: str = Field(..., example="operation_name")
+    start_time: str
+    end_time: str
+    status: str

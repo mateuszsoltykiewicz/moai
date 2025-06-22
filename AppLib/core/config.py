@@ -15,7 +15,40 @@ from pathlib import Path
 import aiofiles
 from watchfiles import awatch
 from pydantic import BaseModel, ValidationError
-from models.config import AppConfig  # Import your schema
+from models import AppConfig  # Import your schema
+
+import asyncio
+from typing import Type, Optional
+from core.config import AsyncConfigManager
+from models import AppConfig  # Your Pydantic config model
+
+# Global config manager instance
+_config_manager: Optional[AsyncConfigManager] = None
+
+async def init_config_manager(config_path: str, schema: Type[AppConfig] = AppConfig) -> None:
+    """Initialize the global config manager (call during app startup)"""
+    global _config_manager
+    if _config_manager is None:
+        _config_manager = AsyncConfigManager(config_path, schema)
+        await _config_manager.start()
+
+async def get_config() -> AppConfig:
+    """Async access to current config (use in async contexts)"""
+    if _config_manager is None:
+        raise RuntimeError("Config manager not initialized")
+    return await _config_manager.get()
+
+class SyncConfigAccessor:
+    """Provides synchronous access to async config manager"""
+    def __init__(self):
+        if _config_manager is None:
+            raise RuntimeError("Config manager not initialized")
+        self._manager = _config_manager
+        
+    def get(self) -> AppConfig:
+        """Synchronous config access"""
+        loop = asyncio.get_event_loop()
+        return loop.run_until_complete(self._manager.get())
 
 class AsyncConfigManager:
     def __init__(

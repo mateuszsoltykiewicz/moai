@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, AsyncMock
-from AppLib.subservices.secrets.manager import SecretsManager, VaultConfig
+from AppLib.components.secrets.manager import SecretsManager, VaultConfig
 
 @pytest.fixture
 def vault_config():
