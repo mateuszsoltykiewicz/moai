@@ -1,0 +1,20 @@
+{
+  "database": {
+    "tables": [
+      {
+        "name": "records",
+        "fields": {
+          "id": "String",
+          "data": "JSON"
+        }
+      },
+      {
+        "name": "events",
+        "fields": {
+          "event_id": "String",
+          "payload": "JSON"
+        }
+      }
+    ]
+  }
+}

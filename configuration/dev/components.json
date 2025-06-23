@@ -1,0 +1,10 @@
+{
+  "enabled_components": {
+    "kafka": true,
+    "i2c": true,
+    "canbus": false,
+    "database": true,
+    "mtls": true,
+    "hap": false
+  }
+}

@@ -1,0 +1,2 @@
+class CentralAlarmNotFoundError(Exception):
+    pass
