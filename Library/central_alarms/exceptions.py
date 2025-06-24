@@ -1,2 +1,0 @@
-class CentralAlarmNotFoundError(Exception):
-    pass
