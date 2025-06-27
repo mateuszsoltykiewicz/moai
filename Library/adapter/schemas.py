@@ -3,7 +3,7 @@ Pydantic schemas for AdapterManager.
 """
 
 from pydantic import BaseModel
-from typing import Dict
+from typing import Dict, Any
 
 class AdapterInfo(BaseModel):
     type: str

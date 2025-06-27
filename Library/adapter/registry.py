@@ -1,27 +1,20 @@
 """
 Adapter registry for AdapterManager.
 
-- Register all adapter classes here for discovery and instantiation
+- Registers all available manager classes as adapters for dynamic discovery and instantiation.
 """
 
-from typing import Dict, Type, Any
+from Library.i2c.manager import I2CManager
+from Library.kafka.manager import KafkaProducerManager, KafkaConsumerManager
+from Library.database.manager import DatabaseManager
+from Library.canbus.manager import CanbusManager
+# Import other managers as needed
 
-# Example: Placeholder for adapter classes (replace with real implementations)
-class ExampleI2CAdapter:
-    def __init__(self, config: Dict[str, Any]):
-        pass
-
-class ExampleCanbusAdapter:
-    def __init__(self, config: Dict[str, Any]):
-        pass
-
-class ExampleKafkaAdapter:
-    def __init__(self, config: Dict[str, Any]):
-        pass
-
-adapter_registry: Dict[str, Type] = {
-    "i2c": ExampleI2CAdapter,
-    "canbus": ExampleCanbusAdapter,
-    "kafka": ExampleKafkaAdapter,
+adapter_registry = {
+    "i2c": I2CManager,
+    "kafka_producer": KafkaProducerManager,
+    "kafka_consumer": KafkaConsumerManager,
+    "database": DatabaseManager,
+    "canbus": CanbusManager,
     # Add more adapters as needed
 }

@@ -1,14 +1,23 @@
-"""
-Prometheus metrics for VaultManager.
-"""
-
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 VAULT_OPERATIONS = Counter(
-    "vault_manager_operations_total",
-    "Total operations performed by VaultManager",
-    ["operation"]
+    "vault_operations_total",
+    "Total Vault operations",
+    ["operation", "status"]
 )
 
-def record_vault_operation(operation: str):
-    VAULT_OPERATIONS.labels(operation=operation).inc()
+VAULT_LATENCY = Histogram(
+    "vault_operation_latency_seconds",
+    "Vault operation duration",
+    ["operation"],
+    buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+)
+
+def record_vault_operation(operation: str, status: str = "success"):
+    VAULT_OPERATIONS.labels(operation=operation, status=status).inc()
+
+def record_vault_latency(operation: str, duration: float):
+    VAULT_LATENCY.labels(operation=operation).observe(duration)
+
+def record_vault_error(operation: str):
+    record_vault_operation(operation, "error")

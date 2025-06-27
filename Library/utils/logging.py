@@ -1,15 +1,16 @@
 """
 Logging utilities for UtilsManager.
 
-- Provides robust, production-ready logging setup for FastAPI and all components
+- Production-ready logging setup for FastAPI and all components
 - Supports console, file, and JSON logging
-- Works with Uvicorn and in all environments
+- Works with Uvicorn and all environments
+- Integrates with log rotation and centralized logging
 """
 
 import logging
 from logging.config import dictConfig
-import sys
 import os
+from logging.handlers import RotatingFileHandler
 
 def setup_logging(config: dict = None):
     """
@@ -36,10 +37,12 @@ def setup_logging(config: dict = None):
                 "stream": "ext://sys.stdout",
             },
             "file": {
-                "class": "logging.FileHandler",
+                "class": "logging.handlers.RotatingFileHandler",
                 "filename": "app.log",
                 "formatter": "json",
                 "level": log_level,
+                "maxBytes": 10 * 1024 * 1024,  # 10MB
+                "backupCount": 5,
             },
         },
         "loggers": {

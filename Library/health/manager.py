@@ -1,71 +1,93 @@
 """
-HealthManager: Centralized health status management for all components.
-
-- Aggregates health status from all registered components
-- Provides async lifecycle management
-- Exposes health and readiness endpoints via API
-- Integrates with metrics and logging
+Production-grade HealthManager with concurrent checks, timeouts, and detailed metrics.
 """
 
 import asyncio
-from typing import Dict, Any, List, Callable, Awaitable
+import time
+from typing import Dict, Callable, Awaitable
 from .schemas import HealthCheckDetail, HealthCheckResponse
-from .utils import log_info
-from .metrics import record_health_check
+from .utils import log_info, log_warning
+from .metrics import record_health_check, record_health_check_duration
 
 class HealthManager:
-    def __init__(self):
+    def __init__(self, version: str = "unknown", timeout: float = 5.0):
         self._checks: Dict[str, Callable[[], Awaitable[Dict[str, Any]]]] = {}
+        self._start_time = time.monotonic()
+        self._version = version
+        self._timeout = timeout
         self._lock = asyncio.Lock()
 
     async def setup(self):
-        """
-        Async setup logic for the HealthManager.
-        """
         log_info("HealthManager: Setup complete.")
 
     async def shutdown(self):
-        """
-        Async shutdown logic for the HealthManager.
-        """
         log_info("HealthManager: Shutdown complete.")
 
     def register_health_check(self, name: str, check: Callable[[], Awaitable[Dict[str, Any]]]) -> None:
-        """
-        Register an async health check function.
-        """
-        self._checks[name] = check
-        log_info(f"HealthManager: Registered health check for '{name}'.")
+        with self._lock:
+            self._checks[name] = check
+            log_info(f"Registered health check: {name}")
+
+    def unregister_health_check(self, name: str) -> None:
+        with self._lock:
+            if name in self._checks:
+                del self._checks[name]
+                log_info(f"Unregistered health check: {name}")
+
+    async def _run_check(self, name: str, check: Callable[[], Awaitable[Dict[str, Any]]]) -> HealthCheckDetail:
+        start_time = time.monotonic()
+        try:
+            # Enforce timeout per health check
+            result = await asyncio.wait_for(check(), timeout=self._timeout)
+            status = result.get("status", "ok")
+            details = result.get("details", {})
+            
+            # Record metrics
+            duration = time.monotonic() - start_time
+            record_health_check(name, status)
+            record_health_check_duration(name, duration)
+            
+            return HealthCheckDetail(status=status, details=details)
+        except asyncio.TimeoutError:
+            record_health_check(name, "timeout")
+            return HealthCheckDetail(
+                status="timeout",
+                details={"error": f"Health check timed out after {self._timeout}s"}
+            )
+        except Exception as e:
+            record_health_check(name, "fail")
+            return HealthCheckDetail(
+                status="fail",
+                details={"error": str(e)}
+            )
 
     async def run_health_checks(self) -> Dict[str, HealthCheckDetail]:
-        """
-        Run all registered health checks and return results.
-        """
-        results: Dict[str, HealthCheckDetail] = {}
-        for name, check in self._checks.items():
-            try:
-                result = await check()
-                results[name] = HealthCheckDetail(**result)
-            except Exception as e:
-                results[name] = HealthCheckDetail(
-                    status="fail",
-                    details={"error": str(e)}
-                )
+        """Run all checks concurrently with timeout enforcement"""
+        tasks = {}
+        async with self._lock:
+            for name, check in self._checks.items():
+                tasks[name] = asyncio.create_task(self._run_check(name, check))
+        
+        results = {}
+        for name, task in tasks.items():
+            results[name] = await task
         return results
 
     async def get_health_status(self) -> HealthCheckResponse:
-        """
-        Get overall health status of the application.
-        """
-        start_time = asyncio.get_event_loop().time()
+        """Get overall health status with degraded state support"""
         checks = await self.run_health_checks()
-        overall_status = "ok" if all(c.status == "ok" for c in checks.values()) else "degraded"
-        duration = asyncio.get_event_loop().time() - start_time
-        record_health_check("status", duration)
-        log_info(f"HealthManager: Health status: {overall_status}")
+        
+        # Determine overall status
+        if all(c.status == "ok" for c in checks.values()):
+            overall_status = "ok"
+        elif any(c.status == "fail" for c in checks.values()):
+            overall_status = "fail"
+        else:
+            overall_status = "degraded"
+        
         return HealthCheckResponse(
             status=overall_status,
             checks=checks,
-            uptime_seconds=0,  # Will be set by the app
-            version="1.0.0"    # Will be set by the app
+            uptime_seconds=time.monotonic() - self._start_time,
+            version=self._version
         )

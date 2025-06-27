@@ -12,7 +12,6 @@ from Library.alarms.api import router as alarms_router
 from Library.sessions.api import router as sessions_router
 from Library.schemas.api import router as schemas_router
 
-# Optional routers (import only if enabled)
 def get_all_routers(config):
     routers = [
         core_router,

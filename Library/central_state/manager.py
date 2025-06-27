@@ -1,27 +1,54 @@
 import asyncio
-from typing import Dict
+from datetime import datetime, timezone
+from typing import Dict, List
+from Library.database.manager import DatabaseManager
 from .schemas import ServiceState
-from datetime import datetime, timedelta
+from .metrics import record_state_operation
+from .utils import log_info
 
 class CentralStateRegistry:
-    def __init__(self, heartbeat_timeout: int = 30):
-        self._services: Dict[str, ServiceState] = {}
+    """
+    Central service registry with health monitoring and persistence.
+    """
+    def __init__(self, db_manager: DatabaseManager, heartbeat_timeout: int = 30):
+        self._db_manager = db_manager
         self._lock = asyncio.Lock()
         self.heartbeat_timeout = heartbeat_timeout
 
-    async def register_or_update(self, state: ServiceState):
+    async def register_or_update(self, state: ServiceState) -> ServiceState:
         async with self._lock:
-            self._services[state.name] = state
+            # Create or update service state in database
+            await self._db_manager.create_or_update(
+                "services", 
+                state.name, 
+                state.dict()
+            )
+            record_state_operation("register")
+            log_info(f"Registered/updated service: {state.name}")
+            return state
 
-    async def get_service(self, name: str) -> ServiceState:
+    async def get_service(self, name: str) -> Optional[ServiceState]:
         async with self._lock:
-            return self._services.get(name)
+            service_data = await self._db_manager.get_record("services", name)
+            if not service_data:
+                return None
+            return ServiceState(**service_data)
 
-    async def list_services(self) -> Dict[str, ServiceState]:
+    async def list_services(self) -> List[ServiceState]:
         async with self._lock:
-            # Optionally, mark stale services as "unhealthy"
-            now = datetime.timezone.utc()
-            for svc in self._services.values():
-                if (now - svc.last_heartbeat).total_seconds() > self.heartbeat_timeout:
-                    svc.status = "stale"
-            return dict(self._services)
+            # Get all services from database
+            services_data = await self._db_manager.query_records("services")
+            
+            # Check health status
+            now = datetime.now(timezone.utc)
+            updated_services = []
+            
+            for data in services_data:
+                service = ServiceState(**data)
+                # Update status if heartbeat is stale
+                if (now - service.last_heartbeat).total_seconds() > self.heartbeat_timeout:
+                    service.status = "stale"
+                    await self._db_manager.update_record("services", service.name, service.dict())
+                updated_services.append(service)
+            
+            return updated_services

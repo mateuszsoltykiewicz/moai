@@ -16,3 +16,10 @@ class CanbusStreamResponse(BaseModel):
     arbitration_id: int
     List[int]
     timestamp: float
+
+class CanbusStreamResponse(BaseModel):
+    sensor: str
+    arbitration_id: int
+    data: List[int] = Field(..., max_items=8)  # CAN max 8 bytes
+    timestamp: float
+

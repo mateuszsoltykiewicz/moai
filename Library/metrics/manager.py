@@ -8,11 +8,11 @@ MetricsManager: Centralized Prometheus/OpenMetrics management.
 """
 
 from prometheus_client import (
-    CollectorRegistry, Counter, Gauge, Histogram, Summary, generate_latest, CONTENT_TYPE_LATEST
+    CollectorRegistry, Counter, Gauge, Histogram, Summary, generate_latest
 )
 from typing import Dict, Any, Optional
 import asyncio
-from .utils import log_info
+from .utils import log_info, log_error
 
 class MetricsManager:
     def __init__(self):
@@ -21,65 +21,58 @@ class MetricsManager:
         self._lock = asyncio.Lock()
 
     async def setup(self):
-        """
-        Async setup logic for the MetricsManager.
-        """
         log_info("MetricsManager: Setup complete.")
 
     async def shutdown(self):
-        """
-        Async shutdown logic for the MetricsManager.
-        """
         log_info("MetricsManager: Shutdown complete.")
 
-    def register_counter(self, name: str, description: str, labelnames: Optional[list] = None):
-        """
-        Register a new Counter metric.
-        """
-        with self._lock:
-            c = Counter(name, description, labelnames=labelnames or [], registry=self.registry)
-            self.metrics[name] = c
-            log_info(f"MetricsManager: Registered Counter {name}.")
-            return c
+    async def register_counter(self, name: str, description: str, labelnames: Optional[list] = None):
+        async with self._lock:
+            try:
+                c = Counter(name, description, labelnames=labelnames or [], registry=self.registry)
+                self.metrics[name] = c
+                log_info(f"MetricsManager: Registered Counter {name}.")
+                return c
+            except Exception as e:
+                log_error(f"Failed to register Counter {name}: {e}")
+                raise
 
-    def register_gauge(self, name: str, description: str, labelnames: Optional[list] = None):
-        """
-        Register a new Gauge metric.
-        """
-        with self._lock:
-            g = Gauge(name, description, labelnames=labelnames or [], registry=self.registry)
-            self.metrics[name] = g
-            log_info(f"MetricsManager: Registered Gauge {name}.")
-            return g
+    async def register_gauge(self, name: str, description: str, labelnames: Optional[list] = None):
+        async with self._lock:
+            try:
+                g = Gauge(name, description, labelnames=labelnames or [], registry=self.registry)
+                self.metrics[name] = g
+                log_info(f"MetricsManager: Registered Gauge {name}.")
+                return g
+            except Exception as e:
+                log_error(f"Failed to register Gauge {name}: {e}")
+                raise
 
-    def register_histogram(self, name: str, description: str, labelnames: Optional[list] = None):
-        """
-        Register a new Histogram metric.
-        """
-        with self._lock:
-            h = Histogram(name, description, labelnames=labelnames or [], registry=self.registry)
-            self.metrics[name] = h
-            log_info(f"MetricsManager: Registered Histogram {name}.")
-            return h
+    async def register_histogram(self, name: str, description: str, labelnames: Optional[list] = None):
+        async with self._lock:
+            try:
+                h = Histogram(name, description, labelnames=labelnames or [], registry=self.registry)
+                self.metrics[name] = h
+                log_info(f"MetricsManager: Registered Histogram {name}.")
+                return h
+            except Exception as e:
+                log_error(f"Failed to register Histogram {name}: {e}")
+                raise
 
-    def register_summary(self, name: str, description: str, labelnames: Optional[list] = None):
-        """
-        Register a new Summary metric.
-        """
-        with self._lock:
-            s = Summary(name, description, labelnames=labelnames or [], registry=self.registry)
-            self.metrics[name] = s
-            log_info(f"MetricsManager: Registered Summary {name}.")
-            return s
+    async def register_summary(self, name: str, description: str, labelnames: Optional[list] = None):
+        async with self._lock:
+            try:
+                s = Summary(name, description, labelnames=labelnames or [], registry=self.registry)
+                self.metrics[name] = s
+                log_info(f"MetricsManager: Registered Summary {name}.")
+                return s
+            except Exception as e:
+                log_error(f"Failed to register Summary {name}: {e}")
+                raise
 
-    def get_metric(self, name: str):
-        """
-        Get a registered metric by name.
-        """
-        return self.metrics.get(name)
+    async def get_metric(self, name: str):
+        async with self._lock:
+            return self.metrics.get(name)
 
     def scrape(self) -> bytes:
-        """
-        Generate the latest Prometheus metrics in text format.
-        """
         return generate_latest(self.registry)

@@ -1,4 +1,7 @@
 """
-Custom exceptions for UtilsManager (placeholder).
+Custom exceptions for UtilsManager.
 """
-# No custom exceptions needed for utils at this time.
+
+class UtilsManagerError(Exception):
+    """Generic error for UtilsManager operations."""
+    pass

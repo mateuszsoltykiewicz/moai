@@ -1,14 +1,9 @@
-"""
-ApiManager: Centralized API router and lifecycle management.
-
-- Registers and manages all FastAPI routers for the application
-- Supports dynamic router registration and dependency injection
-- Integrates with OpenAPI docs, metrics, and logging
-"""
+# api/manager.py
 
 from fastapi import FastAPI
 from .routers import get_all_routers
-from .utils import log_info
+from .metrics import record_api_operation
+from .utils import log_info, log_error
 
 class ApiManager:
     """
@@ -16,19 +11,65 @@ class ApiManager:
     """
     def __init__(self):
         self.app: FastAPI = None
+        self._registered_routers = []
 
-    async def setup(self, app: FastAPI):
+    async def setup(self, app: FastAPI, config):
         """
         Async setup logic for the ApiManager.
         Registers all routers with the FastAPI app.
         """
         self.app = app
-        for router in get_all_routers():
-            self.app.include_router(router)
-        log_info("ApiManager: All routers registered.")
+        try:
+            routers = get_all_routers(config)
+            for router in routers:
+                self.app.include_router(router)
+                self._registered_routers.append(router)
+                record_api_operation("register_router")
+                log_info(f"ApiManager: Router {getattr(router, 'prefix', str(router))} registered.")
+            log_info("ApiManager: All routers registered.")
+        except Exception as e:
+            log_error(f"ApiManager setup failed: {e}")
+            raise RuntimeError(f"ApiManager setup failed: {e}")
 
     async def shutdown(self):
         """
         Async shutdown logic for the ApiManager.
         """
-        log_info("ApiManager: Shutdown complete.")
+        try:
+            # If you have any shutdown hooks for routers, call them here
+            log_info("ApiManager: Shutdown complete.")
+        except Exception as e:
+            log_error(f"ApiManager shutdown failed: {e}")
+            raise RuntimeError(f"ApiManager shutdown failed: {e}")
+
+    async def register_router(self, router):
+        """
+        Register a single router dynamically.
+        """
+        try:
+            self.app.include_router(router)
+            self._registered_routers.append(router)
+            record_api_operation("register_router")
+            log_info(f"ApiManager: Router {getattr(router, 'prefix', str(router))} registered dynamically.")
+        except Exception as e:
+            log_error(f"Failed to register router {getattr(router, 'prefix', str(router))}: {e}")
+            raise RuntimeError(f"Failed to register router: {e}")
+
+    async def list_routers(self):
+        """
+        List all registered routers.
+        """
+        if not self.app:
+            return []
+        return [getattr(r, 'prefix', str(r)) for r in self._registered_routers]
+
+    # Note: FastAPI does not support router removal natively.
+    async def unregister_router(self, router):
+        """
+        Log request to unregister a router (not supported in FastAPI).
+        """
+        log_warning(f"ApiManager: Unregister router {getattr(router, 'prefix', str(router))} requested but not supported.")
+
+def log_warning(message: str):
+    import logging
+    logging.warning(f"[ApiManager] {message}")

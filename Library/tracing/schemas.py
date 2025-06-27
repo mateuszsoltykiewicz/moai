@@ -1,16 +1,15 @@
-"""
-Pydantic schemas for TracingManager (for diagnostics endpoints).
-"""
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any
 
-from pydantic import BaseModel
-from typing import Dict, Any
-
-class TraceInfo(BaseModel):
+class Span(BaseModel):
     trace_id: str
     span_id: str
-    parent_span_id: str
-    attributes: Dict[str, Any]
+    parent_id: str
     name: str
-    start_time: str
-    end_time: str
-    status: str
+    start_time: float
+    end_time: float
+    attributes: Dict[str, Any] = {}
+
+class TraceQueryResponse(BaseModel):
+    trace_id: str
+    spans: List[Span]

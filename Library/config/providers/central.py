@@ -1,4 +1,3 @@
-# config/providers/central.py
 import httpx
 import websockets
 from ..provider import ConfigProvider
@@ -11,7 +10,7 @@ class CentralConfigProvider(ConfigProvider):
         self.ws = None
 
     async def setup(self):
-        pass  # Connection managed per request
+        pass
 
     async def teardown(self):
         if self.ws:
@@ -22,11 +21,12 @@ class CentralConfigProvider(ConfigProvider):
             response = await client.get(
                 f"{self.server_url}/config/{self.service_name}/{self.env}"
             )
+            response.raise_for_status()
             return response.json()["config"]
 
-    async def watch(self) -> AsyncGenerator[None, None]:
+    async def watch(self):
         async with websockets.connect(f"{self.server_url}/ws") as ws:
             self.ws = ws
             while True:
-                await ws.recv()  # Wait for change notification
+                await ws.recv()
                 yield

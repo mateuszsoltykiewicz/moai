@@ -7,10 +7,9 @@ API endpoints for AdapterManager.
 from fastapi import APIRouter, HTTPException, Body
 from .manager import AdapterManager
 from .schemas import AdapterInfo, AdapterConfig
-from .exceptions import AdapterNotFoundError
+from .exceptions import AdapterNotFoundError, AdapterCreationError
 
 router = APIRouter(prefix="/adapter", tags=["adapter"])
-
 adapter_manager = AdapterManager()
 
 @router.post("/", response_model=AdapterInfo)
@@ -23,6 +22,8 @@ async def create_adapter(req: AdapterConfig = Body(...)):
         return {"type": req.type, "class_name": adapter.__class__.__name__}
     except AdapterNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except AdapterCreationError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/", response_model=Dict[str, str])
 async def list_adapters():

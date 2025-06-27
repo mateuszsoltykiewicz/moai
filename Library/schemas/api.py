@@ -1,12 +1,8 @@
-"""
-API endpoints for SchemasManager.
-
-- Exposes /schemas/ for schema discovery and validation
-"""
-
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi.responses import JSONResponse
 from .manager import SchemasManager
 from .exceptions import SchemaNotFoundError
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/schemas", tags=["schemas"])
 
@@ -17,7 +13,10 @@ async def list_schemas():
     """
     List all registered schema names.
     """
-    return await schemas_manager.list_schemas()
+    try:
+        return await schemas_manager.list_schemas()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to list schemas: {e}")
 
 @router.get("/{schema_name}")
 async def get_schema(schema_name: str):
@@ -26,6 +25,8 @@ async def get_schema(schema_name: str):
     """
     try:
         schema_cls = await schemas_manager.get_schema(schema_name)
-        return schema_cls.schema()
+        return JSONResponse(content=schema_cls.schema())
     except SchemaNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get schema: {e}")

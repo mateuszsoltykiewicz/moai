@@ -1,7 +1,3 @@
-"""
-Prometheus metrics for ApiManager (optional).
-"""
-
 from prometheus_client import Counter
 
 API_OPERATIONS = Counter(

@@ -16,7 +16,7 @@ from .utils import log_info
 from .central_registry_adapter import CentralAlarmsAdapter
 
 class AlarmsManager:
-    def __init__(self):
+    def __init__(self, central_registry_url: Optional[str] = None):
         self._alarms: Dict[str, Alarm] = {}
         self._listeners: Dict[str, Callable[[Alarm], Awaitable[None]]] = {}
         self._lock = asyncio.Lock()

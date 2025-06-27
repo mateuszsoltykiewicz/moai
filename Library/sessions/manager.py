@@ -1,122 +1,84 @@
-"""
-SessionsManager: Centralized async session management.
-
-- Manages sessions for adapters, hardware, and other resources
-- Supports session creation, retrieval, update, and deletion
-- Integrates with metrics, logging, and all components
-- Async and thread-safe
-"""
-
 import asyncio
-from typing import Dict, Any, Optional
+import time
+from typing import Dict, Any, Optional, List
 from .schemas import Session, SessionCreateRequest, SessionUpdateRequest
 from .exceptions import SessionNotFoundError
-from .metrics import record_session_operation
-from .utils import log_info
+from .metrics import record_session_operation, record_active_sessions, record_session_duration
+from .utils import log_info, log_error
+from Library.database.manager import DatabaseManager  # Use your DB manager
 
 class SessionsManager:
-    """
-    Central manager for sessions in the application.
-    Provides async methods for creating, updating, retrieving, and deleting sessions.
-    """
-    def __init__(self):
-        self._sessions: Dict[str, Session] = {}
+    def __init__(self, db_manager: DatabaseManager):
+        self._db = db_manager
         self._lock = asyncio.Lock()
 
     async def create_session(self, req: SessionCreateRequest) -> Session:
-        """
-        Create a new session.
-
-        Args:
-            req: SessionCreateRequest with id and data
-
-        Returns:
-            Session: The created Session object
-        """
+        now = time.time()
+        expires_at = now + req.expires_in if req.expires_in else None
+        session = Session(
+            id=req.id,
+            data=req.data,
+            active=True,
+            created_at=now,
+            updated_at=now,
+            expires_at=expires_at
+        )
         async with self._lock:
-            session = Session(
-                id=req.id,
-                data=req.data,
-                active=True
-            )
-            self._sessions[session.id] = session
+            await self._db.create_record("sessions", session.dict())
             record_session_operation("create")
-            log_info(f"SessionsManager: Created session {session.id}")
+            record_active_sessions(await self.count_active_sessions())
+            log_info(f"Created session {session.id}")
             return session
 
     async def update_session(self, session_id: str, req: SessionUpdateRequest) -> Session:
-        """
-        Update an existing session.
-
-        Args:
-            session_id: The session ID to update
-            req: SessionUpdateRequest with updated data
-
-        Returns:
-            Session: The updated Session object
-
-        Raises:
-            SessionNotFoundError: If session with given id does not exist
-        """
         async with self._lock:
-            session = self._sessions.get(session_id)
-            if not session:
+            session_data = await self._db.get_record("sessions", session_id)
+            if not session_data:
                 raise SessionNotFoundError(f"Session {session_id} not found")
-            if req.data is not None:
+            session = Session(**session_data)
+            now = time.time()
+            if req.data:
                 session.data.update(req.data)
             if req.active is not None:
                 session.active = req.active
+            if req.expires_in:
+                session.expires_at = now + req.expires_in
+            session.updated_at = now
+            await self._db.update_record("sessions", session_id, session.dict())
             record_session_operation("update")
-            log_info(f"SessionsManager: Updated session {session.id}")
+            log_info(f"Updated session {session.id}")
             return session
 
     async def get_session(self, session_id: str) -> Session:
-        """
-        Retrieve a session by ID.
-
-        Args:
-            session_id: The session ID
-
-        Returns:
-            Session: The Session object
-
-        Raises:
-            SessionNotFoundError: If session with given id does not exist
-        """
         async with self._lock:
-            session = self._sessions.get(session_id)
-            if not session:
+            session_data = await self._db.get_record("sessions", session_id)
+            if not session_data:
                 raise SessionNotFoundError(f"Session {session_id} not found")
+            session = Session(**session_data)
+            if session.expires_at and session.expires_at < time.time():
+                await self.delete_session(session_id)
+                raise SessionNotFoundError(f"Session {session_id} expired")
             return session
 
     async def delete_session(self, session_id: str) -> None:
-        """
-        Delete a session by ID.
-
-        Args:
-            session_id: The session ID
-
-        Raises:
-            SessionNotFoundError: If session with given id does not exist
-        """
         async with self._lock:
-            if session_id not in self._sessions:
-                raise SessionNotFoundError(f"Session {session_id} not found")
-            del self._sessions[session_id]
+            await self._db.delete_record("sessions", session_id)
             record_session_operation("delete")
-            log_info(f"SessionsManager: Deleted session {session_id}")
+            record_active_sessions(await self.count_active_sessions())
+            log_info(f"Deleted session {session_id}")
 
-    async def list_sessions(self, active_only: bool = False) -> Dict[str, Session]:
-        """
-        List all sessions, optionally filtering by active status.
-
-        Args:
-            active_only: If True, only return active sessions
-
-        Returns:
-            Dict[str, Session]: Dictionary of session_id to Session objects
-        """
+    async def list_sessions(self, active_only: bool = False, limit: int = 100, offset: int = 0) -> Dict[str, Session]:
         async with self._lock:
-            if active_only:
-                return {sid: s for sid, s in self._sessions.items() if s.active}
-            return dict(self._sessions)
+            records = await self._db.query_records("sessions", limit=limit, filters={"active": True} if active_only else None)
+            now = time.time()
+            sessions = {}
+            for rec in records:
+                session = Session(**rec)
+                if session.expires_at and session.expires_at < now:
+                    continue
+                sessions[session.id] = session
+            return sessions
+
+    async def count_active_sessions(self) -> int:
+        sessions = await self.list_sessions(active_only=True)
+        return len(sessions)

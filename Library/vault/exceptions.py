@@ -1,11 +1,14 @@
-"""
-Custom exceptions for VaultManager.
-"""
-
 class VaultError(Exception):
-    """Generic Vault error."""
-    pass
+    """Base Vault error"""
 
-class VaultNotFoundError(Exception):
-    """Raised when a secret is not found."""
-    pass
+class VaultNotFoundError(VaultError):
+    """Secret not found"""
+
+class VaultConnectionError(VaultError):
+    """Connection-related error"""
+
+class VaultPermissionError(VaultError):
+    """Permission denied"""
+
+class VaultValidationError(VaultError):
+    """Secret validation failed"""

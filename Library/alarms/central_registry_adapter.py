@@ -1,5 +1,3 @@
-# alarms/central_registry_adapter.py
-
 import httpx
 from .schemas import AlarmRaiseRequest, AlarmClearRequest
 

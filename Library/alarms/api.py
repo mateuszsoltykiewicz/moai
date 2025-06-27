@@ -11,7 +11,7 @@ from .exceptions import AlarmNotFoundError
 
 router = APIRouter(prefix="/alarms", tags=["alarms"])
 
-alarms_manager = AlarmsManager()
+alarms_manager = AlarmsManager()  # Pass central_registry_url as needed
 
 @router.post("/raise", response_model=Alarm)
 async def raise_alarm(req: AlarmRaiseRequest = Body(...)):

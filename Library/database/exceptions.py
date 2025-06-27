@@ -3,9 +3,13 @@ Custom exceptions for DatabaseManager.
 """
 
 class DatabaseError(Exception):
-    """Generic error for DatabaseManager operations."""
+    """Base database error"""
     pass
 
-class RecordNotFoundError(Exception):
-    """Raised when a database record is not found."""
+class RecordNotFoundError(DatabaseError):
+    """Record not found error"""
+    pass
+
+class TableNotConfiguredError(DatabaseError):
+    """Table not configured error"""
     pass

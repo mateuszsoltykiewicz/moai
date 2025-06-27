@@ -1,24 +1,17 @@
-"""
-Schema registry for SchemasManager.
-
-- Register all Pydantic schemas here for discovery and validation
-"""
-
 from pydantic import BaseModel, Field
 from typing import Dict, Any
 
-# Example schemas
-class ExampleEvent(BaseModel):
+class ExampleEventV1(BaseModel):
     event_id: str = Field(..., example="evt-001")
     payload: Dict[str, Any]
 
-class ExampleConfig(BaseModel):
-    key: str
-    value: Any
+class ExampleEventV2(BaseModel):
+    event_id: str = Field(..., example="evt-001")
+    payload: Dict[str, Any]
+    timestamp: str = Field(..., example="2025-06-27T17:00:00Z")
 
-# Registry dictionary: name -> schema class
 schema_registry = {
-    "ExampleEvent": ExampleEvent,
-    "ExampleConfig": ExampleConfig,
-    # Add new schemas here as needed
+    "ExampleEvent:v1": ExampleEventV1,
+    "ExampleEvent:v2": ExampleEventV2,
+    # Add more schemas here
 }

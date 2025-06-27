@@ -1,7 +1,15 @@
 """
-Custom exceptions for MtlsManager.
+Granular exceptions for mTLS errors.
 """
 
 class MtlsConfigError(Exception):
-    """Raised when mTLS configuration fails."""
-    pass
+    """Base configuration error"""
+
+class MtlsCertValidationError(MtlsConfigError):
+    """Certificate validation failed"""
+
+class MtlsReloadError(MtlsConfigError):
+    """Certificate reload failed"""
+
+class MtlsEnforcementError(MtlsConfigError):
+    """Enforcement mode change failed"""

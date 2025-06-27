@@ -1,20 +1,17 @@
-# state/central_state_adapter.py
-
 import httpx
 import asyncio
-from typing import Dict, Any, Optional
+from datetime import datetime
 from .exceptions import StateSyncError
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 class CentralStateRegistryAdapter:
     def __init__(self, csr_url: str):
         self._csr_url = csr_url
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def push_state(self, service_name: str, state: Dict[str, Any]) -> bool:
-        """
-        Push local state to the Central State Registry.
-        """
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.post(
                     f"{self._csr_url}/central_state/register",
                     json={
@@ -23,8 +20,7 @@ class CentralStateRegistryAdapter:
                         "last_heartbeat": datetime.utcnow().isoformat()
                     }
                 )
-                if response.status_code != 200:
-                    raise StateSyncError(f"Failed to push state: {response.text}")
+                response.raise_for_status()
                 return True
         except Exception as e:
-            raise StateSyncError(f"State sync error: {e}")
+            raise StateSyncError(f"State sync failed: {str(e)}")

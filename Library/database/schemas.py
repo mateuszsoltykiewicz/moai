@@ -7,11 +7,11 @@ from typing import Dict, Any
 
 class DatabaseRecordCreate(BaseModel):
     id: str = Field(..., example="rec-001")
-    Dict[str, Any]
+    data: Dict[str, Any] = Field(..., description="Record data payload")
 
 class DatabaseRecordResponse(BaseModel):
     id: str
-    Dict[str, Any]
+    data: Dict[str, Any]
 
     class Config:
         orm_mode = True

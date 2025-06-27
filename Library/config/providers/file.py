@@ -1,4 +1,3 @@
-# config/providers/file.py
 import os
 import json
 import aiofiles
@@ -14,7 +13,7 @@ class FileConfigProvider(ConfigProvider):
         self.reload_interval = reload_interval
 
     async def setup(self):
-        pass  # No setup needed for file provider
+        pass
 
     async def teardown(self):
         pass
@@ -26,7 +25,7 @@ class FileConfigProvider(ConfigProvider):
         self._apply_env_overrides(config_data)
         return config_data
 
-    async def watch(self) -> AsyncGenerator[None, None]:
+    async def watch(self):
         async for _ in awatch(self.config_path):
             yield
             await asyncio.sleep(self.reload_interval)

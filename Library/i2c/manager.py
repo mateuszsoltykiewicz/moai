@@ -1,20 +1,10 @@
-"""
-I2CManager: Async I2C hardware and GPIO control for Raspberry Pi.
-
-- Manages I2C bus and GPIO relay/valve/pump control
-- Supports hardware configuration and state monitoring
-- Streams events to Kafka and persists to Database if enabled
-- Integrates with metrics, logging, alarms, and state management
-"""
-
 import asyncio
-from typing import Dict, Any, Optional, Callable, Awaitable, List
+from typing import Dict, Any, List
 from .schemas import I2CDeviceConfig, I2CControlRequest, I2CStatusResponse
-from .exceptions import I2CError, I2CDeviceNotFoundError
+from .exceptions import I2CError, I2CDeviceNotFoundError, I2CInvalidActionError
 from .metrics import record_i2c_operation
-from .utils import log_info
+from .utils import log_info, log_error
 
-# Example: Use smbus2 for I2C and gpiozero for GPIO
 try:
     import smbus2
     import gpiozero
@@ -25,70 +15,111 @@ except ImportError:
 class I2CManager:
     def __init__(self, config: Dict[str, Any]):
         self._bus_id = config.get("bus", 1)
-        self._devices: Dict[str, I2CDeviceConfig] = {d["name"]: I2CDeviceConfig(**d) for d in config.get("devices", [])}
+        self._devices: Dict[str, I2CDeviceConfig] = {}
         self._gpio_pins = config.get("gpio_pins", {})
-        self._bus = smbus2.SMBus(self._bus_id) if smbus2 else None
-        self._relays: Dict[str, Any] = {}
+        self._bus = None
+        self._relays: Dict[str, gpiozero.OutputDevice] = {}
         self._lock = asyncio.Lock()
-
-        # Initialize relays (GPIO outputs)
-        if gpiozero:
-            for name, pin in self._gpio_pins.items():
-                self._relays[name] = gpiozero.OutputDevice(pin)
+        self._device_states: Dict[str, str] = {}  # Track device states
+        
+        # Load device configurations
+        for device_cfg in config.get("devices", []):
+            device = I2CDeviceConfig(**device_cfg)
+            self._devices[device.name] = device
+            self._device_states[device.name] = "unknown"
+        
+        # Initialize relays with safe defaults
+        for name, pin in self._gpio_pins.items():
+            self._relays[name] = gpiozero.OutputDevice(pin, active_high=False)
+            self._device_states[name] = "off"
 
     async def setup(self):
-        log_info("I2CManager: Setup complete.")
+        if smbus2:
+            self._bus = smbus2.SMBus(self._bus_id)
+        log_info("I2CManager: Setup complete")
 
     async def shutdown(self):
+        # Safe shutdown: Turn off all relays
+        for name in self._relays:
+            await self._safe_control(name, "off")
+        
         if self._bus:
             self._bus.close()
-        for relay in self._relays.values():
-            relay.close()
-        log_info("I2CManager: Shutdown complete.")
+        log_info("I2CManager: Shutdown complete")
+
+    async def _run_in_executor(self, func, *args):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, func, *args)
+
+    async def _safe_control(self, device: str, action: str):
+        """Thread-safe hardware control with validation"""
+        if device not in self._relays:
+            raise I2CDeviceNotFoundError(f"Device '{device}' not found")
+        
+        if action not in ["on", "off"]:
+            raise I2CInvalidActionError(f"Invalid action '{action}'")
+        
+        relay = self._relays[device]
+        current_state = self._device_states[device]
+        
+        # Prevent redundant operations
+        if (action == "on" and current_state == "on") or \
+           (action == "off" and current_state == "off"):
+            log_info(f"Device {device} already in state {action}")
+            return
+        
+        try:
+            if action == "on":
+                await self._run_in_executor(relay.on)
+            else:
+                await self._run_in_executor(relay.off)
+                
+            self._device_states[device] = action
+            log_info(f"Set {device} to {action}")
+        except Exception as e:
+            log_error(f"Hardware control failed for {device}: {str(e)}")
+            raise I2CError(f"Control failed: {str(e)}")
 
     async def control(self, req: I2CControlRequest) -> I2CStatusResponse:
-        """
-        Control a relay, valve, or pump via GPIO.
-        """
         async with self._lock:
-            relay = self._relays.get(req.device)
-            if not relay:
-                raise I2CDeviceNotFoundError(f"Relay '{req.device}' not found")
-            if req.action == "on":
-                relay.on()
-            elif req.action == "off":
-                relay.off()
-            else:
-                raise I2CError(f"Unsupported action '{req.action}'")
+            await self._safe_control(req.device, req.action)
             record_i2c_operation("control")
-            log_info(f"I2CManager: Set {req.device} to {req.action}")
-            return I2CStatusResponse(device=req.device, status=req.action)
+            return I2CStatusResponse(device=req.device, status=self._device_states[req.device])
 
     async def get_status(self, device: str) -> I2CStatusResponse:
-        """
-        Get the status of a relay or I2C device.
-        """
         async with self._lock:
-            if device in self._relays:
-                relay = self._relays[device]
-                status = "on" if relay.value else "off"
-                return I2CStatusResponse(device=device, status=status)
+            if device in self._device_states:
+                return I2CStatusResponse(
+                    device=device,
+                    status=self._device_states[device]
+                )
             elif device in self._devices:
-                # Example: Read a register from the I2C device
+                # I2C device status check
                 dev_cfg = self._devices[device]
-                if not self._bus:
-                    raise I2CError("I2C bus not available")
                 try:
-                    value = self._bus.read_byte(dev_cfg.address)
-                    return I2CStatusResponse(device=device, status="ok", value=value)
+                    value = await self._run_in_executor(
+                        self._bus.read_byte, 
+                        dev_cfg.address
+                    )
+                    return I2CStatusResponse(
+                        device=device,
+                        status="active",
+                        value=value
+                    )
                 except Exception as e:
-                    raise I2CError(f"I2C read error: {e}")
-            else:
-                raise I2CDeviceNotFoundError(f"Device '{device}' not found")
+                    log_error(f"I2C read error for {device}: {str(e)}")
+                    raise I2CError(f"Read failed: {str(e)}")
+            raise I2CDeviceNotFoundError(f"Device '{device}' not found")
 
     async def list_devices(self) -> List[str]:
-        """
-        List all known relay and I2C device names.
-        """
-        async with self._lock:
-            return list(self._relays.keys()) + list(self._devices.keys())
+        return list(self._device_states.keys())
+    
+    async def _watchdog(self):
+        while True:
+            for device in self._device_states:
+                try:
+                    await self.get_status(device)
+                except I2CError:
+                    log_error(f"Watchdog: Device {device} failed")
+                    # Trigger recovery
+            await asyncio.sleep(10)

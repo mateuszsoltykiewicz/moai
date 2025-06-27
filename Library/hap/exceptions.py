@@ -1,7 +1,11 @@
-"""
-Custom exceptions for HAPManager.
-"""
-
 class HAPError(Exception):
-    """Generic error for HAPManager operations."""
-    pass
+    """Base HAP error"""
+
+class HAPSetupError(HAPError):
+    """Initialization failure"""
+
+class HAPAccessoryError(HAPError):
+    """Accessory-specific error"""
+
+class HAPSecurityError(HAPError):
+    """Security violation"""
