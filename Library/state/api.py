@@ -40,5 +40,3 @@ async def set_state(key: str, req: StateUpdateRequest = Body(...)):
         raise HTTPException(404, str(e))
     except Exception as e:
         raise HTTPException(500, f"Internal error: {str(e)}")
-
-# ... (other endpoints with similar enhancements) ...
