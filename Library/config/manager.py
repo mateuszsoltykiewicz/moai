@@ -3,7 +3,9 @@ from typing import Any, Dict, Callable, Awaitable, Optional, Type
 from .schemas import AppConfig
 from .exceptions import ConfigValidationError
 from .metrics import record_config_operation, record_config_error
-from .utils import log_info, log_error
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class ConfigManager:
     def __init__(
@@ -26,11 +28,12 @@ class ConfigManager:
             await self.provider.setup()
             await self._load()
             self._watch_task = asyncio.create_task(self._watch_changes())
+            logger.info("ConfigManager started successfully")
         except Exception as e:
-            log_error(f"Config startup failed: {e}")
+            logger.error(f"Config startup failed: {e}", exc_info=True)
             if self._fallback_config:
                 self._current_config = self.schema.model_validate(self._fallback_config)
-                log_info("Using fallback configuration")
+                logger.info("Using fallback configuration")
 
     async def stop(self) -> None:
         if self._watch_task:
@@ -40,12 +43,18 @@ class ConfigManager:
             except asyncio.CancelledError:
                 pass
         await self.provider.teardown()
+        logger.info("ConfigManager stopped")
 
     async def get(self) -> AppConfig:
         async with self._lock:
             if self._current_config is None:
                 await self._load()
             return self._current_config
+
+    async def set(self, new_config: AppConfig) -> None:
+        async with self._lock:
+            self._current_config = new_config
+            await self._notify_listeners()
 
     def add_listener(self, name: str, callback: Callable[[AppConfig], Awaitable[None]]) -> None:
         self._listeners[name] = callback
@@ -64,10 +73,11 @@ class ConfigManager:
                 self._fallback_config = raw_config
                 await self._notify_listeners()
                 record_config_operation("load")
-                log_info("ConfigManager: Config loaded and validated.")
+                logger.info("Config loaded and validated")
             except Exception as e:
                 record_config_error()
-                raise ConfigValidationError(f"Config validation failed: {e}")
+                logger.error(f"Config validation failed: {e}", exc_info=True)
+                raise ConfigValidationError(f"Config validation failed: {e}") from e
 
     async def _inject_secrets(self, config: dict) -> dict:
         # Implement secret injection logic if needed
@@ -79,7 +89,7 @@ class ConfigManager:
                 async for _ in self.provider.watch():
                     await self._load()
             except Exception as e:
-                log_error(f"Config watch failed: {e}. Reconnecting in 5s...")
+                logger.error(f"Config watch failed: {e}. Reconnecting in 5s...", exc_info=True)
                 await asyncio.sleep(5)
                 await self.provider.setup()
 
@@ -89,4 +99,4 @@ class ConfigManager:
                 try:
                     await callback(self._current_config)
                 except Exception as e:
-                    log_info(f"Config listener error: {e}")
+                    logger.error(f"Config listener error: {e}", exc_info=True)

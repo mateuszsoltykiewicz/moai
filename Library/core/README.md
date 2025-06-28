@@ -1,31 +1,51 @@
-# CoreManager
+# Core Component
 
-## Purpose
+## Overview
 
-The CoreManager is the central orchestrator for the AppLib platform.  
-It coordinates the startup, shutdown, and health of all other managers/components.
+Central orchestrator for core logic and service coordination.  
+**All API endpoints require JWT/OIDC authentication and RBAC authorization via the generic dependency from `Library/api/security.py`.**
 
 ## Features
 
-- Async lifecycle management
-- Status and health reporting
-- Integration with metrics and tracing
-- Extensible for orchestration logic
+- **Centralized Orchestration**: Coordinates core services and managers
+- **Async Lifecycle**: Supports async setup and shutdown
+- **Health/Status Reporting**: Exposes `/core/status` endpoint
+- **JWT/OIDC Security**: All endpoints require valid Keycloak-issued JWTs
+- **RBAC Enforcement**: Role-based access control using claims from JWT and Vault policies
+- **Metrics Integration**: Tracks core operations
+- **Centralized Logging**: Uses `Library.logging` component
 
-## API
+## API Endpoints
 
-- `GET /core/status` – Returns the current status and state of the CoreManager
+| Endpoint      | Method | Description               | Security (Required)  |
+|---------------|--------|---------------------------|----------------------|
+| `/core/status`| GET    | Get core status/health    | JWT/OIDC, RBAC       |
 
-## Metrics
+## Security & Integration
 
-- `core_manager_operations_total{operation="setup"}` – Incremented on setup
-- `core_manager_operations_total{operation="shutdown"}` – Incremented on shutdown
+- **JWT/OIDC Validation**: Uses `Library/api/security` dependency
+- **RBAC Enforcement**: Requires `core:read` for status endpoint
+- **Centralized Logging**: All logs via `Library.logging`
 
-## Usage
+## Usage Example
 
-The CoreManager is instantiated and managed at application startup.  
-Other managers may register with it for orchestration and coordination.
+from fastapi import FastAPI
+from Library.core.api import router as core_router
+app = FastAPI()
+app.include_router(core_router)
 
-## Extending
 
-Add orchestration logic, hooks, or additional API endpoints as needed.
+## Potential Improvements
+
+- Add more granular health checks for subcomponents
+- Expose metrics endpoint for Prometheus scraping
+
+## Potential Bug Sources
+
+1. **Improper Initialization**: If `setup()` is not called, state may be incomplete
+2. **Concurrency**: Async state changes must be thread-safe if expanded
+3. **Security**: Missing JWT or RBAC enforcement will expose sensitive status
+
+## Logging
+
+All operations use `Library.logging` with structured JSON format.

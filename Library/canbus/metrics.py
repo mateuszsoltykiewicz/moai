@@ -19,5 +19,5 @@ CANBUS_MESSAGE_COUNT = Counter(
 def record_canbus_operation(operation: str):
     CANBUS_OPERATIONS.labels(operation=operation).inc()
 
-def record_canbus_message(msg: str):
+def record_canbus_message(msg):
     CANBUS_MESSAGE_COUNT.labels(arbitration_id=msg.arbitration_id).inc()

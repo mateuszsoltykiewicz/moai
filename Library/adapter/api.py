@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Body
 from .manager import AdapterManager
 from .schemas import AdapterInfo, AdapterConfig
 from .exceptions import AdapterNotFoundError, AdapterCreationError
+from typing import Dict
 
 router = APIRouter(prefix="/adapter", tags=["adapter"])
 adapter_manager = AdapterManager()

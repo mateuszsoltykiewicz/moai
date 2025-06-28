@@ -4,8 +4,10 @@ from typing import List, Optional
 from Library.database.manager import DatabaseManager
 from .schemas import CentralAlarm, AlarmRaiseRequest, AlarmClearRequest
 from .exceptions import CentralAlarmNotFoundError
-from .metrics import record_central_alarm_operation
-from .utils import log_info
+from .metrics import record_central_alarm_operation, update_active_alarms_count
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class CentralAlarmsRegistry:
     """
@@ -28,7 +30,8 @@ class CentralAlarmsRegistry:
             )
             await self._db_manager.create_record("alarms", alarm.dict())
             record_central_alarm_operation("raise")
-            log_info(f"CentralAlarmsRegistry: Raised alarm {alarm.id} ({alarm.type}) from {alarm.source}")
+            logger.info(f"Raised alarm {alarm.id} ({alarm.type}) from {alarm.source}")
+            await self._update_alarms_count()
             return alarm
 
     async def clear_alarm(self, req: AlarmClearRequest) -> CentralAlarm:
@@ -41,7 +44,8 @@ class CentralAlarmsRegistry:
             alarm.cleared_at = req.cleared_at or datetime.utcnow()
             await self._db_manager.update_record("alarms", alarm.id, alarm.dict())
             record_central_alarm_operation("clear")
-            log_info(f"CentralAlarmsRegistry: Cleared alarm {alarm.id}")
+            logger.info(f"Cleared alarm {alarm.id}")
+            await self._update_alarms_count()
             return alarm
 
     async def get_alarm(self, alarm_id: str) -> CentralAlarm:
@@ -58,3 +62,11 @@ class CentralAlarmsRegistry:
             else:
                 alarms_data = await self._db_manager.query_records("alarms")
             return [CentralAlarm(**data) for data in alarms_data]
+
+    async def _update_alarms_count(self):
+        """Update active alarms gauge metric"""
+        try:
+            active_alarms = await self.list_alarms(active_only=True)
+            update_active_alarms_count(len(active_alarms))
+        except Exception as e:
+            logger.error(f"Failed to update alarms count: {e}", exc_info=True)

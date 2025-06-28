@@ -1,32 +1,33 @@
-from fastapi import APIRouter, HTTPException, Query, Response
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Depends, Request
 from .manager import SchemasManager
 from .exceptions import SchemaNotFoundError
+from Library.api.security import require_jwt_and_rbac
+from Library.logging import get_logger
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/schemas", tags=["schemas"])
+logger = get_logger(__name__)
 
-schemas_manager = SchemasManager()
+def create_router(manager: SchemasManager) -> APIRouter:
+    router = APIRouter(prefix="/schemas", tags=["schemas"])
 
-@router.get("/", response_model=list[str])
-async def list_schemas():
-    """
-    List all registered schema names.
-    """
-    try:
-        return await schemas_manager.list_schemas()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list schemas: {e}")
+    @router.get("/", response_model=list[str], dependencies=[Depends(lambda request: require_jwt_and_rbac(request, "schemas", "read"))])
+    async def list_schemas():
+        try:
+            return await manager.list_schemas()
+        except Exception as e:
+            logger.error(f"Failed to list schemas: {e}", exc_info=True)
+            raise HTTPException(500, "Internal server error")
 
-@router.get("/{schema_name}")
-async def get_schema(schema_name: str):
-    """
-    Get a schema definition by name.
-    """
-    try:
-        schema_cls = await schemas_manager.get_schema(schema_name)
-        return JSONResponse(content=schema_cls.schema())
-    except SchemaNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get schema: {e}")
+    @router.get("/{schema_name}", dependencies=[Depends(lambda request: require_jwt_and_rbac(request, "schemas", "read"))])
+    async def get_schema(schema_name: str):
+        try:
+            schema_cls = await manager.get_schema(schema_name)
+            return schema_cls.schema()
+        except SchemaNotFoundError as e:
+            logger.warning(f"Schema not found: {schema_name}")
+            raise HTTPException(404, str(e))
+        except Exception as e:
+            logger.error(f"Failed to get schema: {e}", exc_info=True)
+            raise HTTPException(500, "Internal server error")
+
+    return router

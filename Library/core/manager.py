@@ -10,8 +10,10 @@ CoreManager: Central orchestrator for core logic and services.
 
 import asyncio
 from typing import Dict, Any, Optional
-from .utils import log_info
+from Library.logging import get_logger
 from .metrics import record_core_operation
+
+logger = get_logger(__name__)
 
 class CoreManager:
     def __init__(self):
@@ -22,21 +24,20 @@ class CoreManager:
         """
         Async setup logic for the CoreManager.
         """
-        log_info("CoreManager: Starting setup.")
-        # Initialize core state, register with metrics/tracing, etc.
+        logger.info("CoreManager: Starting setup.")
         self.state['initialized'] = True
         self.running = True
         record_core_operation("setup")
-        log_info("CoreManager: Setup complete.")
+        logger.info("CoreManager: Setup complete.")
 
     async def shutdown(self):
         """
         Async shutdown/cleanup logic for the CoreManager.
         """
-        log_info("CoreManager: Shutdown initiated.")
+        logger.info("CoreManager: Shutdown initiated.")
         self.running = False
         record_core_operation("shutdown")
-        log_info("CoreManager: Shutdown complete.")
+        logger.info("CoreManager: Shutdown complete.")
 
     def get_status(self) -> Dict[str, Any]:
         """

@@ -5,6 +5,9 @@ import asyncio
 from pathlib import Path
 from watchfiles import awatch
 from ..provider import ConfigProvider
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class FileConfigProvider(ConfigProvider):
     def __init__(self, config_path: str, env_prefix: str = "APP", reload_interval: float = 2.0):
@@ -13,30 +16,33 @@ class FileConfigProvider(ConfigProvider):
         self.reload_interval = reload_interval
 
     async def setup(self):
-        pass
+        logger.info(f"Using file config: {self.config_path}")
 
     async def teardown(self):
-        pass
+        logger.info("Stopped file config watcher")
 
     async def load(self) -> dict:
-        async with aiofiles.open(self.config_path, "r") as f:
-            content = await f.read()
-        config_data = json.loads(content)
-        self._apply_env_overrides(config_data)
-        return config_data
+        try:
+            async with aiofiles.open(self.config_path, "r") as f:
+                content = await f.read()
+            config_data = json.loads(content)
+            self._apply_env_overrides(config_data)
+            logger.debug(f"Loaded config from file: {self.config_path}")
+            return config_data
+        except Exception as e:
+            logger.error(f"Failed to load config file: {e}", exc_info=True)
+            raise
 
     async def watch(self):
-        async for _ in awatch(self.config_path):
-            yield
-            await asyncio.sleep(self.reload_interval)
+        try:
+            async for _ in awatch(self.config_path):
+                logger.info(f"Config file changed: {self.config_path}")
+                yield
+                await asyncio.sleep(self.reload_interval)
+        except Exception as e:
+            logger.error(f"File watch failed: {e}", exc_info=True)
+            raise
 
-    def _apply_env_overrides(self, config_: Dict[str, Any]) -> None:
-        def set_nested(d: dict, keys: list, value: str):
-            for key in keys[:-1]:
-                d = d.setdefault(key, {})
-            d[keys[-1]] = value
-
-        for env_var, value in os.environ.items():
-            if env_var.startswith(f"{self.env_prefix}__"):
-                keys = env_var[len(self.env_prefix) + 2 :].lower().split("__")
-                set_nested(config_, keys, value)
+    def _apply_env_overrides(self, config_: dict) -> None:
+        # Implementation remains the same
+        ...

@@ -1,31 +1,36 @@
 import asyncio
-from typing import List, Type
-from .registry import schema_registry
+from typing import Dict, Type, List
+from pydantic import BaseModel
 from .exceptions import SchemaNotFoundError
 from .metrics import record_schema_operation
-from .utils import log_info, log_error
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class SchemasManager:
     def __init__(self):
-        self._registry = schema_registry
+        self._registry: Dict[str, Type[BaseModel]] = {}
         self._lock = asyncio.Lock()
 
-    async def get_schema(self, name: str) -> Type:
-        async with self._lock:
-            if name not in self._registry:
-                log_error(f"Schema '{name}' not found")
-                raise SchemaNotFoundError(f"Schema '{name}' not found")
-            record_schema_operation("get")
-            log_info(f"Schema '{name}' retrieved")
-            return self._registry[name]
+    def register_schema(self, name: str, schema_cls: Type[BaseModel]) -> None:
+        """Register a schema at startup"""
+        with self._lock:
+            if name in self._registry:
+                logger.warning(f"Schema '{name}' already registered - overwriting")
+            self._registry[name] = schema_cls
+            logger.info(f"Registered schema: {name}")
 
     async def list_schemas(self) -> List[str]:
-        async with self._lock:
+        """List all registered schema names"""
+        with self._lock:
             record_schema_operation("list")
-            log_info("Schema list retrieved")
             return list(self._registry.keys())
 
-    async def register_schema(self, name: str, schema_cls: Type) -> None:
-        async with self._lock:
-            self._registry[name] = schema_cls
-            log_info(f"Schema '{name}' registered")
+    async def get_schema(self, name: str) -> Type[BaseModel]:
+        """Get schema class by name"""
+        with self._lock:
+            if name not in self._registry:
+                logger.error(f"Schema '{name}' not found")
+                raise SchemaNotFoundError(f"Schema '{name}' not found")
+            record_schema_operation("get")
+            return self._registry[name]

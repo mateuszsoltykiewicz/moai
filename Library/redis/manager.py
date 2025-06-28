@@ -2,16 +2,18 @@
 RedisManager: Async, centralized Redis adapter for microservices.
 
 - Provides async methods for KV, hash, pub/sub, streams, locks, and health checks
-- Integrates with metrics, logging, and FastAPI lifecycle
+- Integrates with metrics, centralized logging, and FastAPI lifecycle
 - Secure, observable, and extensible
 """
 
 import asyncio
 from redis.asyncio import Redis, from_url
 from typing import Optional, Any, Dict, AsyncGenerator
-from .metrics import record_redis_operation, record_redis_latency
+from .metrics import record_redis_operation
 from .exceptions import RedisConnectionError, RedisOperationError
-from .utils import log_info, log_error
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class RedisManager:
     def __init__(self, redis_url: str, password: Optional[str] = None, ssl: bool = False):
@@ -34,16 +36,16 @@ class RedisManager:
             pong = await self._client.ping()
             if not pong:
                 raise RedisConnectionError("Failed to connect to Redis")
-            log_info("RedisManager: Connected to Redis")
+            logger.info("Connected to Redis")
             record_redis_operation("connect")
         except Exception as e:
-            log_error(f"RedisManager setup failed: {e}")
+            logger.error(f"Redis setup failed: {e}", exc_info=True)
             raise RedisConnectionError(str(e))
 
     async def shutdown(self):
         if self._client:
             await self._client.close()
-            log_info("RedisManager: Connection closed.")
+            logger.info("Redis connection closed")
 
     # ---- Basic KV Operations ----
     async def get(self, key: str) -> Optional[str]:
@@ -52,7 +54,7 @@ class RedisManager:
             record_redis_operation("get")
             return value
         except Exception as e:
-            log_error(f"RedisManager get failed: {e}")
+            logger.error(f"Redis get failed: {e}", exc_info=True)
             record_redis_operation("get", status="error")
             raise RedisOperationError(str(e))
 
@@ -61,7 +63,7 @@ class RedisManager:
             await self._client.set(key, value, ex=expire)
             record_redis_operation("set")
         except Exception as e:
-            log_error(f"RedisManager set failed: {e}")
+            logger.error(f"Redis set failed: {e}", exc_info=True)
             record_redis_operation("set", status="error")
             raise RedisOperationError(str(e))
 
@@ -70,7 +72,7 @@ class RedisManager:
             await self._client.delete(key)
             record_redis_operation("delete")
         except Exception as e:
-            log_error(f"RedisManager delete failed: {e}")
+            logger.error(f"Redis delete failed: {e}", exc_info=True)
             record_redis_operation("delete", status="error")
             raise RedisOperationError(str(e))
 
@@ -81,7 +83,7 @@ class RedisManager:
             record_redis_operation("hgetall")
             return result
         except Exception as e:
-            log_error(f"RedisManager hgetall failed: {e}")
+            logger.error(f"Redis hgetall failed: {e}", exc_info=True)
             record_redis_operation("hgetall", status="error")
             raise RedisOperationError(str(e))
 
@@ -90,7 +92,7 @@ class RedisManager:
             await self._client.hset(key, mapping=mapping)
             record_redis_operation("hset")
         except Exception as e:
-            log_error(f"RedisManager hset failed: {e}")
+            logger.error(f"Redis hset failed: {e}", exc_info=True)
             record_redis_operation("hset", status="error")
             raise RedisOperationError(str(e))
 
@@ -100,7 +102,7 @@ class RedisManager:
             await self._client.publish(channel, message)
             record_redis_operation("publish")
         except Exception as e:
-            log_error(f"RedisManager publish failed: {e}")
+            logger.error(f"Redis publish failed: {e}", exc_info=True)
             record_redis_operation("publish", status="error")
             raise RedisOperationError(str(e))
 
@@ -137,5 +139,5 @@ class RedisManager:
             pong = await self._client.ping()
             return pong is True
         except Exception as e:
-            log_error(f"RedisManager health check failed: {e}")
+            logger.error(f"Redis health check failed: {e}", exc_info=True)
             return False

@@ -1,7 +1,3 @@
-"""
-Prometheus metrics for SchemasManager.
-"""
-
 from prometheus_client import Counter
 
 SCHEMA_OPERATIONS = Counter(

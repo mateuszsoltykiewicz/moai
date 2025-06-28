@@ -3,8 +3,10 @@ import os
 import pygit2
 import yaml
 from pathlib import Path
-from .utils import log_error
 from concurrent.futures import ThreadPoolExecutor
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class GitConfigBackend:
     def __init__(self, repo_url: str):
@@ -15,29 +17,29 @@ class GitConfigBackend:
         self.executor = ThreadPoolExecutor(max_workers=1)
         
     async def connect(self):
-        """Clone or update repository with error handling"""
         try:
             if self.repo_path.exists():
                 self.repo = pygit2.Repository(str(self.repo_path))
                 await self._run_in_executor(self._fetch_updates)
+                logger.info(f"Connected to existing Git repo at {self.repo_path}")
             else:
                 self.repo = await self._run_in_executor(
                     pygit2.clone_repository, 
                     self.repo_url, 
                     str(self.repo_path)
                 )
+                logger.info(f"Cloned Git repo from {self.repo_url} to {self.repo_path}")
             self.current_commit = self.repo.head.target
         except Exception as e:
-            log_error(f"Git connection failed: {e}")
+            logger.error(f"Git connection failed: {e}", exc_info=True)
             raise
 
     def _fetch_updates(self):
-        """Thread-safe git operations"""
         self.repo.remotes["origin"].fetch()
         self.repo.checkout("origin/main")
+        logger.debug("Fetched latest Git changes")
         
     async def get_config(self, service: str, env: str) -> Dict[str, Any]:
-        """Async config loading"""
         path = self.repo_path / service / f"{env}.yaml"
         content = await self._run_in_executor(self._load_file, path)
         return yaml.safe_load(content)
@@ -47,19 +49,18 @@ class GitConfigBackend:
             return f.read()
     
     async def watch_changes(self):
-        """Efficient change detection"""
         while True:
             await asyncio.sleep(30)
             try:
                 await self._run_in_executor(self._fetch_updates)
                 if self.repo.head.target != self.current_commit:
                     self.current_commit = self.repo.head.target
+                    logger.info(f"Detected Git config change at commit {self.current_commit}")
                     yield self.current_commit
             except Exception as e:
-                log_error(f"Git watch error: {e}")
+                logger.error(f"Git watch error: {e}", exc_info=True)
     
     def get_changed_services(self, commit_id: str) -> List[str]:
-        """Detect service-level changes"""
         diff = self.repo.diff(commit_id + "~1", commit_id)
         services = set()
         for delta in diff.deltas:

@@ -10,5 +10,4 @@ class SecretResponse(BaseModel):
     value: Dict[str, Any]
     version: int
     updated: bool = False
-    metadata: Optional[Dict[str, Any]] = None  # Vault metadata
-    error: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None

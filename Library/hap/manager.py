@@ -8,7 +8,7 @@ from typing import Dict, Any, Callable, List
 from .schemas import HAPAccessoryConfig, HAPStatusResponse
 from .exceptions import HAPError, HAPAccessoryError
 from .metrics import record_hap_operation
-from .utils import log_info, log_error
+from Library.logging import get_logger
 from Library.mtls.manager import MtlsManager  # Security integration
 
 # HAP-python imports
@@ -19,6 +19,8 @@ try:
     from pyhap.const import CATEGORY_SENSOR
 except ImportError:
     AccessoryDriver = None
+
+logger = get_logger(__name__)
 
 class HAPManager:
     def __init__(self, config: Dict[str, Any], component_factory: Callable, mtls_manager: MtlsManager):
@@ -35,11 +37,12 @@ class HAPManager:
     async def setup(self):
         """Secure setup with dependency checks"""
         if not AccessoryDriver:
+            logger.critical("HAP-python library not installed")
             raise HAPError("HAP-python library not installed.")
         
         # Security: Verify mTLS is configured
         if not self._mtls.is_configured():
-            log_error("HAPManager requires mTLS configuration")
+            logger.error("HAPManager requires mTLS configuration")
             raise HAPError("mTLS not configured")
         
         self._driver = AccessoryDriver(
@@ -59,19 +62,19 @@ class HAPManager:
                 accessory = self._create_accessory(acc_cfg, component)
                 self._bridge.add_accessory(accessory)
                 self._accessories[acc_cfg["name"]] = accessory
-                log_info(f"Added accessory: {acc_cfg['name']}")
+                logger.info(f"Added accessory: {acc_cfg['name']}")
             except Exception as e:
-                log_error(f"Failed to create accessory {acc_cfg['name']}: {e}")
+                logger.error(f"Failed to create accessory {acc_cfg['name']}: {e}", exc_info=True)
                 raise HAPAccessoryError(f"Accessory creation failed: {e}")
         
         self._driver.add_accessory(self._bridge)
         record_hap_operation("setup")
-        log_info("HAPManager: Setup complete.")
+        logger.info("HAPManager setup complete")
 
     def _create_accessory(self, acc_cfg: dict, component: Any) -> Accessory:
         """Factory method with state synchronization"""
         class AppLibAccessory(Accessory):
-            def __init__(driver, display_name):
+            def __init__(self, driver, display_name):
                 super().__init__(driver, display_name)
                 self.component = component
                 self.component_name = acc_cfg["component_name"]
@@ -114,7 +117,7 @@ class HAPManager:
             self._driver_thread.start()
             self._running = True
             record_hap_operation("start")
-            log_info("HAPManager: HomeKit driver started")
+            logger.info("HomeKit driver started")
 
     async def shutdown(self):
         """Graceful shutdown with thread management"""
@@ -126,13 +129,12 @@ class HAPManager:
             self._driver_thread.join(timeout=5.0)
             self._running = False
             record_hap_operation("shutdown")
-            log_info("HAPManager: Shutdown complete")
+            logger.info("HAPManager shutdown complete")
 
     async def get_status(self) -> HAPStatusResponse:
         """Status with accessory health checks"""
         accessory_status = []
         for name, acc in self._accessories.items():
-            # Check if component is responsive
             try:
                 component = acc.component
                 if hasattr(component, "health_check"):
@@ -140,7 +142,8 @@ class HAPManager:
                     accessory_status.append(f"{name}:{status}")
                 else:
                     accessory_status.append(f"{name}:active")
-            except Exception:
+            except Exception as e:
+                logger.error(f"Health check failed for {name}: {e}", exc_info=True)
                 accessory_status.append(f"{name}:error")
         
         return HAPStatusResponse(

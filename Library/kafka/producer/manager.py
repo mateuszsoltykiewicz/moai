@@ -3,8 +3,10 @@ from aiokafka import AIOKafkaProducer
 from typing import Dict, Any
 from kafka.exceptions import KafkaError
 from kafka.metrics import record_kafka_operation
-from kafka.utils import log_info
+from Library.logging import get_logger
 from .schemas import KafkaProduceRequest
+
+logger = get_logger(__name__)
 
 class KafkaProducerManager:
     def __init__(self, config: Dict[str, Any]):
@@ -24,12 +26,12 @@ class KafkaProducerManager:
             request_timeout_ms=self._message_timeout
         )
         await self._producer.start()
-        log_info("KafkaProducerManager: Producer started")
+        logger.info("Producer started")
 
     async def shutdown(self):
         if self._producer:
             await self._producer.stop()
-            log_info("KafkaProducerManager: Producer stopped")
+            logger.info("Producer stopped")
 
     async def produce(self, req: KafkaProduceRequest):
         try:
@@ -40,7 +42,8 @@ class KafkaProducerManager:
                 headers=req.headers
             )
             record_kafka_operation("produce", req.topic, "success")
-            log_info(f"Produced message to {req.topic}")
+            logger.info(f"Produced message to {req.topic}")
         except Exception as e:
             record_kafka_operation("produce", req.topic, "failed")
+            logger.error(f"Kafka produce error: {e}", exc_info=True)
             raise KafkaError(f"Produce error: {e}") from e

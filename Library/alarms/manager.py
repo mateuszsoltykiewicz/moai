@@ -3,7 +3,7 @@ AlarmsManager: Centralized alarm and event management.
 
 - Stores, raises, clears, and queries alarms
 - Notifies listeners on alarm changes
-- Integrates with metrics, logging, and other managers
+- Integrates with metrics, centralized logging, and other managers
 - Async and thread-safe
 """
 
@@ -12,8 +12,10 @@ from typing import Dict, Any, Callable, Awaitable, List, Optional
 from .schemas import Alarm, AlarmRaiseRequest, AlarmClearRequest
 from .exceptions import AlarmNotFoundError
 from .metrics import record_alarm_operation
-from .utils import log_info
+from Library.logging import get_logger
 from .central_registry_adapter import CentralAlarmsAdapter
+
+logger = get_logger(__name__)
 
 class AlarmsManager:
     def __init__(self, central_registry_url: Optional[str] = None):
@@ -38,7 +40,7 @@ class AlarmsManager:
                 await self.central_adapter.raise_alarm(alarm_req)
             self._alarms[alarm.id] = alarm
             record_alarm_operation("raise")
-            log_info(f"AlarmsManager: Raised alarm {alarm.id} ({alarm.type}) from {alarm.source}")
+            logger.info(f"AlarmsManager: Raised alarm {alarm.id} ({alarm.type}) from {alarm.source}")
             await self._notify_listeners(alarm)
             return alarm
 
@@ -52,7 +54,7 @@ class AlarmsManager:
                 raise AlarmNotFoundError(f"Alarm {alarm_req.id} not found")
             alarm.active = False
             record_alarm_operation("clear")
-            log_info(f"AlarmsManager: Cleared alarm {alarm.id}")
+            logger.info(f"AlarmsManager: Cleared alarm {alarm.id}")
             await self._notify_listeners(alarm)
             return alarm
 
@@ -96,4 +98,4 @@ class AlarmsManager:
             try:
                 await callback(alarm)
             except Exception as e:
-                log_info(f"Alarm listener error: {e}")
+                logger.error(f"Alarm listener error: {e}", exc_info=True)

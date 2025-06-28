@@ -3,9 +3,11 @@ import time
 from typing import Dict, Any, Optional, List
 from .schemas import Session, SessionCreateRequest, SessionUpdateRequest
 from .exceptions import SessionNotFoundError
-from .metrics import record_session_operation, record_active_sessions, record_session_duration
-from .utils import log_info, log_error
-from Library.database.manager import DatabaseManager  # Use your DB manager
+from .metrics import record_session_operation, record_active_sessions
+from Library.logging import get_logger
+from Library.database.manager import DatabaseManager
+
+logger = get_logger(__name__)
 
 class SessionsManager:
     def __init__(self, db_manager: DatabaseManager):
@@ -27,7 +29,7 @@ class SessionsManager:
             await self._db.create_record("sessions", session.dict())
             record_session_operation("create")
             record_active_sessions(await self.count_active_sessions())
-            log_info(f"Created session {session.id}")
+            logger.info(f"Created session {session.id}")
             return session
 
     async def update_session(self, session_id: str, req: SessionUpdateRequest) -> Session:
@@ -46,7 +48,7 @@ class SessionsManager:
             session.updated_at = now
             await self._db.update_record("sessions", session_id, session.dict())
             record_session_operation("update")
-            log_info(f"Updated session {session.id}")
+            logger.info(f"Updated session {session.id}")
             return session
 
     async def get_session(self, session_id: str) -> Session:
@@ -65,7 +67,7 @@ class SessionsManager:
             await self._db.delete_record("sessions", session_id)
             record_session_operation("delete")
             record_active_sessions(await self.count_active_sessions())
-            log_info(f"Deleted session {session_id}")
+            logger.info(f"Deleted session {session_id}")
 
     async def list_sessions(self, active_only: bool = False, limit: int = 100, offset: int = 0) -> Dict[str, Session]:
         async with self._lock:

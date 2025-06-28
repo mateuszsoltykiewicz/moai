@@ -1,25 +1,53 @@
-# AdapterManager
+# Adapter Component
 
-## Purpose
+## Overview
 
-The AdapterManager provides centralized, async adapter management for the application:
-
-- Manages registration, retrieval, and lifecycle of hardware/software adapters
-- Supports dynamic adapter loading based on configuration
-- Integrates with sessions, metrics, and logging
+Centralized, async management system for hardware/software adapters. Supports dynamic registration, retrieval, and lifecycle management of adapters, with full integration into your platform’s metrics and centralized logging stack.
 
 ## Features
 
-- Async, thread-safe
-- API for adapter creation, registration, and discovery
-- Prometheus metrics integration
+- Dynamic adapter registration and discovery
+- Singleton management per adapter type
+- Async lifecycle support (`async_setup`, `async_teardown`)
+- Thread-safe operations with asyncio locks
+- Prometheus metrics for operations and latency
+- Centralized logging via `Library.logging`
 
-## API
+## API Endpoints
 
-- `POST /adapter/` – Create or retrieve an adapter instance by type and config
-- `GET /adapter/` – List all registered adapter types
+| Endpoint       | Method | Description                          | Response Model       |
+|----------------|--------|--------------------------------------|----------------------|
+| `/adapter/`    | POST   | Create/retrieve adapter instance     | `AdapterInfo`        |
+| `/adapter/`    | GET    | List registered adapter types        | `Dict[str, str]`     |
 
-## Usage
+## Interactions
 
-Instantiate at app startup and inject into components as needed.
-Register new adapter classes via `register_adapter()`.
+- **Uses Library.logging** for all logging (no ad-hoc logging)
+- **Uses Library.metrics** for Prometheus metrics
+- **Works with adapters from i2c, kafka, database, canbus, etc.**
+- **Should register with service discovery if required by your architecture**
+
+## Potential Improvements
+
+- Add health checks for adapters (monitor status in metrics)
+- Add configuration validation for adapter configs
+
+## Potential Bug Sources
+
+- Adapters missing proper `async_setup`/`async_teardown` can leak resources
+- Registry not updated with all required adapters may cause `AdapterNotFoundError`
+- Invalid configs can cause runtime failures
+
+## Logging
+
+All logging uses the centralized `Library.logging` component with structured format and correlation IDs where applicable.
+
+## Usage Example
+
+Create CANBus adapter
+
+config = {"interface": "socketcan", "channel": "can0"}
+adapter = await adapter_manager.get_adapter("canbus", config)
+List available adapters
+
+adapters = await adapter_manager.list_adapters()

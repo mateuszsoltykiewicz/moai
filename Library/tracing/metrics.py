@@ -1,9 +1,19 @@
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter
 
-TRACES_COLLECTED = Counter("traces_collected_total", "Total traces collected")
-TRACES_EXPORTED = Counter("traces_exported_total", "Total traces exported")
-TRACES_EXPORT_FAILED = Counter("traces_export_failed_total", "Total trace export failures")
-TRACE_PROCESSING_LATENCY = Histogram("trace_processing_latency_seconds", "Trace processing latency")
+TRACES_COLLECTED = Counter(
+    "tracing_traces_collected_total", 
+    "Total traces collected"
+)
+
+TRACES_EXPORTED = Counter(
+    "tracing_traces_exported_total", 
+    "Total traces exported"
+)
+
+TRACES_EXPORT_FAILED = Counter(
+    "tracing_export_failed_total", 
+    "Total trace export failures"
+)
 
 def record_trace_collected():
     TRACES_COLLECTED.inc()

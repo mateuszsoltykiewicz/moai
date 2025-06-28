@@ -1,10 +1,12 @@
 import asyncio
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Dict, List, Optional
 from Library.database.manager import DatabaseManager
 from .schemas import ServiceState
-from .metrics import record_state_operation
-from .utils import log_info
+from .metrics import record_state_operation, update_service_count
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class CentralStateRegistry:
     """
@@ -17,14 +19,14 @@ class CentralStateRegistry:
 
     async def register_or_update(self, state: ServiceState) -> ServiceState:
         async with self._lock:
-            # Create or update service state in database
             await self._db_manager.create_or_update(
                 "services", 
                 state.name, 
                 state.dict()
             )
             record_state_operation("register")
-            log_info(f"Registered/updated service: {state.name}")
+            logger.info(f"Registered/updated service: {state.name}")
+            await self._update_service_count()
             return state
 
     async def get_service(self, name: str) -> Optional[ServiceState]:
@@ -36,19 +38,24 @@ class CentralStateRegistry:
 
     async def list_services(self) -> List[ServiceState]:
         async with self._lock:
-            # Get all services from database
             services_data = await self._db_manager.query_records("services")
-            
-            # Check health status
             now = datetime.now(timezone.utc)
             updated_services = []
             
             for data in services_data:
                 service = ServiceState(**data)
-                # Update status if heartbeat is stale
                 if (now - service.last_heartbeat).total_seconds() > self.heartbeat_timeout:
                     service.status = "stale"
                     await self._db_manager.update_record("services", service.name, service.dict())
                 updated_services.append(service)
             
+            await self._update_service_count()
             return updated_services
+
+    async def _update_service_count(self):
+        """Update service count metric"""
+        try:
+            services = await self._db_manager.query_records("services")
+            update_service_count(len(services))
+        except Exception as e:
+            logger.error(f"Failed to update service count: {e}", exc_info=True)

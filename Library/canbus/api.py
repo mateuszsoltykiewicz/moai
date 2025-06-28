@@ -1,7 +1,5 @@
 """
 API endpoints for CanbusManager.
-
-- Exposes /canbus/stream and /canbus/sensors endpoints
 """
 
 from fastapi import APIRouter, HTTPException, Query
@@ -10,7 +8,7 @@ from .schemas import CanbusStreamResponse
 
 router = APIRouter(prefix="/canbus", tags=["canbus"])
 
-# canbus_manager should be initialized with config at app startup
+# Initialize at app startup
 canbus_manager: CanbusManager = None
 
 @router.get("/stream", response_model=list[CanbusStreamResponse])

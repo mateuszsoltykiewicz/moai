@@ -3,8 +3,10 @@ from aiokafka import AIOKafkaConsumer
 from typing import Dict, Any, List
 from kafka.exceptions import KafkaError
 from kafka.metrics import record_kafka_operation
-from kafka.utils import log_info
+from Library.logging import get_logger
 from .schemas import KafkaConsumeResponse
+
+logger = get_logger(__name__)
 
 class KafkaConsumerManager:
     def __init__(self, config: Dict[str, Any]):
@@ -20,7 +22,7 @@ class KafkaConsumerManager:
             for consumer in self._consumers.values():
                 await consumer.stop()
             self._consumers.clear()
-            log_info("KafkaConsumerManager: All consumers stopped")
+            logger.info("All consumers stopped")
 
     async def consume(self, topic: str, group_id: str, limit: int = 100) -> List[KafkaConsumeResponse]:
         consumer_key = f"{topic}-{group_id}"
@@ -39,7 +41,7 @@ class KafkaConsumerManager:
                 )
                 await consumer.start()
                 self._consumers[consumer_key] = consumer
-                log_info(f"Consumer started for {topic} in group {group_id}")
+                logger.info(f"Consumer started for {topic} in group {group_id}")
 
         messages = []
         try:
@@ -63,8 +65,9 @@ class KafkaConsumerManager:
             
             await consumer.commit()
             record_kafka_operation("consume", topic, "success")
-            log_info(f"Consumed {len(messages)} messages from {topic}")
+            logger.info(f"Consumed {len(messages)} messages from {topic}")
             return messages
         except Exception as e:
             record_kafka_operation("consume", topic, "failed")
+            logger.error(f"Kafka consume error: {e}", exc_info=True)
             raise KafkaError(f"Consume error: {e}") from e

@@ -3,11 +3,12 @@ from typing import Dict, Any, Callable, Awaitable, Optional
 from .schemas import SecretResponse
 from .exceptions import SecretNotFoundError, SecretValidationError, SecretPermissionError
 from .metrics import record_secrets_operation, record_secrets_error
-from .utils import log_info, log_error
-from Library.vault.manager import VaultManager  # Assume injected
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class SecretsManager:
-    def __init__(self, vault_manager: VaultManager):
+    def __init__(self, vault_manager):
         self._vault = vault_manager
         self._listeners: Dict[str, Callable[[str, Any], Awaitable[None]]] = {}
         self._lock = asyncio.Lock()
@@ -32,13 +33,17 @@ class SecretsManager:
                 
                 record_secrets_operation("get")
                 return SecretResponse(path=path, value=secret, version=version, metadata=meta)
-            except VaultPermissionError as e:
-                record_secrets_error("get", "permission")
-                raise SecretPermissionError(f"Access denied for '{path}'") from e
             except Exception as e:
-                record_secrets_error("get", "unknown")
-                log_error(f"Secret read failed: {str(e)}")
-                raise
+                if "permission" in str(e).lower():
+                    record_secrets_error("get", "permission")
+                    raise SecretPermissionError(f"Access denied for '{path}'") from e
+                elif "not found" in str(e).lower():
+                    record_secrets_error("get", "not_found")
+                    raise SecretNotFoundError(f"Secret at '{path}' not found") from e
+                else:
+                    record_secrets_error("get", "unknown")
+                    logger.error(f"Secret read failed: {str(e)}", exc_info=True)
+                    raise
 
     async def set(self, path: str, value: Dict[str, Any], version: Optional[int] = None) -> SecretResponse:
         """Atomic secret update with version validation"""
@@ -70,16 +75,17 @@ class SecretsManager:
                     metadata=meta,
                     updated=True
                 )
-            except VaultVersionConflictError as e:
-                record_secrets_error("set", "version_conflict")
-                raise SecretValidationError("Secret version conflict") from e
-            except VaultPermissionError as e:
-                record_secrets_error("set", "permission")
-                raise SecretPermissionError(f"Write denied for '{path}'") from e
             except Exception as e:
-                record_secrets_error("set", "unknown")
-                log_error(f"Secret write failed: {str(e)}")
-                raise
+                if "version conflict" in str(e).lower():
+                    record_secrets_error("set", "version_conflict")
+                    raise SecretValidationError("Secret version conflict") from e
+                elif "permission" in str(e).lower():
+                    record_secrets_error("set", "permission")
+                    raise SecretPermissionError(f"Write denied for '{path}'") from e
+                else:
+                    record_secrets_error("set", "unknown")
+                    logger.error(f"Secret write failed: {str(e)}", exc_info=True)
+                    raise
 
     def _validate_secret(self, value: Dict[str, Any]) -> bool:
         """Production secret validation rules"""
@@ -88,25 +94,18 @@ class SecretsManager:
             return False
         return True
 
-
     def add_listener(self, name: str, callback: Callable[[str, Any], Awaitable[None]]) -> None:
-        """
-        Register async listener for secret changes.
-        """
+        """Register async listener for secret changes"""
         self._listeners[name] = callback
 
     def remove_listener(self, name: str) -> None:
-        """
-        Remove secret change listener.
-        """
+        """Remove secret change listener"""
         self._listeners.pop(name, None)
 
     async def _notify_listeners(self, path: str, value: Any) -> None:
-        """
-        Notify all async listeners of secret changes.
-        """
+        """Notify all async listeners of secret changes"""
         for callback in self._listeners.values():
             try:
                 await callback(path, value)
             except Exception as e:
-                log_info(f"Secret listener error: {e}")
+                logger.error(f"Secret listener error: {e}", exc_info=True)

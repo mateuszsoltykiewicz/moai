@@ -1,9 +1,9 @@
-# api/manager.py
-
 from fastapi import FastAPI
 from .routers import get_all_routers
 from .metrics import record_api_operation
-from .utils import log_info, log_error
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class ApiManager:
     """
@@ -25,10 +25,10 @@ class ApiManager:
                 self.app.include_router(router)
                 self._registered_routers.append(router)
                 record_api_operation("register_router")
-                log_info(f"ApiManager: Router {getattr(router, 'prefix', str(router))} registered.")
-            log_info("ApiManager: All routers registered.")
+                logger.info(f"ApiManager: Router {getattr(router, 'prefix', str(router))} registered.")
+            logger.info("ApiManager: All routers registered.")
         except Exception as e:
-            log_error(f"ApiManager setup failed: {e}")
+            logger.error(f"ApiManager setup failed: {e}", exc_info=True)
             raise RuntimeError(f"ApiManager setup failed: {e}")
 
     async def shutdown(self):
@@ -37,9 +37,9 @@ class ApiManager:
         """
         try:
             # If you have any shutdown hooks for routers, call them here
-            log_info("ApiManager: Shutdown complete.")
+            logger.info("ApiManager: Shutdown complete.")
         except Exception as e:
-            log_error(f"ApiManager shutdown failed: {e}")
+            logger.error(f"ApiManager shutdown failed: {e}", exc_info=True)
             raise RuntimeError(f"ApiManager shutdown failed: {e}")
 
     async def register_router(self, router):
@@ -50,9 +50,9 @@ class ApiManager:
             self.app.include_router(router)
             self._registered_routers.append(router)
             record_api_operation("register_router")
-            log_info(f"ApiManager: Router {getattr(router, 'prefix', str(router))} registered dynamically.")
+            logger.info(f"ApiManager: Router {getattr(router, 'prefix', str(router))} registered dynamically.")
         except Exception as e:
-            log_error(f"Failed to register router {getattr(router, 'prefix', str(router))}: {e}")
+            logger.error(f"Failed to register router {getattr(router, 'prefix', str(router))}: {e}", exc_info=True)
             raise RuntimeError(f"Failed to register router: {e}")
 
     async def list_routers(self):
@@ -68,8 +68,4 @@ class ApiManager:
         """
         Log request to unregister a router (not supported in FastAPI).
         """
-        log_warning(f"ApiManager: Unregister router {getattr(router, 'prefix', str(router))} requested but not supported.")
-
-def log_warning(message: str):
-    import logging
-    logging.warning(f"[ApiManager] {message}")
+        logger.warning(f"ApiManager: Unregister router {getattr(router, 'prefix', str(router))} requested but not supported.")

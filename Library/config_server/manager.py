@@ -1,13 +1,13 @@
 import asyncio
-import os
-from typing import Dict, Any
 from .backends.git import GitConfigBackend
 from .backends.vault import VaultSecretBackend
 from .notifier import ConfigChangeNotifier
 from .schemas import ConfigResponse
 from .metrics import record_config_operation
-from .utils import log_info, log_error
+from Library.logging import get_logger
 from Library.metrics.manager import MetricsManager
+
+logger = get_logger(__name__)
 
 class ConfigServer:
     def __init__(self, repo_url: str, vault_addr: str, metrics_manager: MetricsManager):
@@ -19,18 +19,16 @@ class ConfigServer:
         self._lock = asyncio.Lock()
         
     async def start(self):
-        """Secure initialization with error handling"""
         try:
             await self.git_backend.connect()
             await self.vault_backend.connect()
             asyncio.create_task(self._watch_changes())
-            log_info("ConfigServer started")
+            logger.info("ConfigServer started")
         except Exception as e:
-            log_error(f"ConfigServer startup failed: {e}")
+            logger.error(f"ConfigServer startup failed: {e}", exc_info=True)
             raise
 
     async def get_config(self, service: str, env: str) -> ConfigResponse:
-        """Cached config retrieval with metrics"""
         cache_key = f"{service}:{env}"
         async with self._lock:
             if cache_key not in self.cache:
@@ -38,24 +36,23 @@ class ConfigServer:
                 secrets = await self._resolve_secrets(config.get("secrets", []))
                 self.cache[cache_key] = {**config, **secrets}
                 record_config_operation("config_fetch")
+                logger.debug(f"Loaded config for {service}/{env}")
             return ConfigResponse(
                 config=self.cache[cache_key],
                 version=self.git_backend.current_commit
             )
     
     async def _resolve_secrets(self, secret_paths: list) -> Dict[str, str]:
-        """Batched secret resolution with error handling"""
         secrets = {}
         for path in secret_paths:
             try:
                 secret_name = path.split("/")[-1]
                 secrets[secret_name] = await self.vault_backend.get_secret(path)
             except Exception as e:
-                log_error(f"Secret resolution failed for {path}: {e}")
+                logger.error(f"Secret resolution failed for {path}: {e}", exc_info=True)
         return secrets
     
     async def _watch_changes(self):
-        """Efficient change detection with backoff"""
         while True:
             try:
                 async for commit_id in self.git_backend.watch_changes():
@@ -67,6 +64,7 @@ class ConfigServer:
                                 del self.cache[key]
                         await self.notifier.notify(service)
                         record_config_operation("config_update")
+                        logger.info(f"Config updated for service: {service}")
             except Exception as e:
-                log_error(f"Config watch error: {e}. Retrying in 10s")
+                logger.error(f"Config watch error: {e}. Retrying in 10s", exc_info=True)
                 await asyncio.sleep(10)

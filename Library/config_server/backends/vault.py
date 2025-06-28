@@ -1,9 +1,11 @@
 import asyncio
 import hvac
 from os import getenv
-from .utils import log_error
 from concurrent.futures import ThreadPoolExecutor
 from tenacity import retry, stop_after_attempt, wait_exponential
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class VaultSecretBackend:
     def __init__(self, vault_addr: str):
@@ -13,13 +15,12 @@ class VaultSecretBackend:
         self.token = None
         
     async def connect(self):
-        """Secure connection with retry"""
         await self._run_in_executor(self._authenticate)
+        logger.info(f"Connected to Vault at {self.vault_addr}")
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
     def _authenticate(self):
         if not self.client.is_authenticated():
-            # Use Kubernetes auth in production
             self.client.auth.approle.login(
                 role_id=getenv("VAULT_ROLE_ID"),
                 secret_id=getenv("VAULT_SECRET_ID")
@@ -36,13 +37,14 @@ class VaultSecretBackend:
                 path=path,
                 mount_point="secret"
             )
+            logger.debug(f"Fetched secret from {path}")
             return response["data"]["data"]["value"]
         except hvac.exceptions.InvalidPath:
-            log_error(f"Secret path not found: {path}")
+            logger.error(f"Secret path not found: {path}")
             return ""
         except hvac.exceptions.Forbidden:
-            log_error(f"Permission denied for secret: {path}")
-            self._authenticate()  # Re-authenticate
+            logger.error(f"Permission denied for secret: {path}")
+            self._authenticate()
             return self._fetch_secret(path)
     
     async def _run_in_executor(self, func, *args):

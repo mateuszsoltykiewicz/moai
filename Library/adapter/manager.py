@@ -3,15 +3,17 @@ AdapterManager: Centralized async adapter management.
 
 - Manages registration, retrieval, and lifecycle of hardware/software adapters
 - Supports dynamic adapter loading based on configuration
-- Integrates with metrics and logging
+- Integrates with metrics and centralized logging
 """
 
-from typing import Dict, Any, Type, Optional
+from typing import Dict, Any, Type
 import asyncio
 from .registry import adapter_registry
 from .exceptions import AdapterNotFoundError, AdapterCreationError
 from .metrics import record_adapter_operation
-from .utils import log_info
+from Library.logging import get_logger
+
+logger = get_logger(__name__)
 
 class AdapterManager:
     """
@@ -29,6 +31,7 @@ class AdapterManager:
         async with self._lock:
             if adapter_type not in self._registry:
                 record_adapter_operation("get", adapter_type, "not_found")
+                logger.warning(f"Adapter type '{adapter_type}' not found")
                 raise AdapterNotFoundError(f"Adapter type '{adapter_type}' not found")
             if adapter_type not in self._adapters:
                 adapter_cls = self._registry[adapter_type]
@@ -38,10 +41,10 @@ class AdapterManager:
                     if hasattr(adapter, "async_setup"):
                         await adapter.async_setup()
                     self._adapters[adapter_type] = adapter
-                    log_info(f"AdapterManager: Created adapter {adapter_type}")
+                    logger.info(f"Created adapter {adapter_type}")
                     record_adapter_operation("create", adapter_type, "success")
                 except Exception as e:
-                    log_info(f"AdapterManager: Failed to create adapter {adapter_type}: {e}")
+                    logger.error(f"Failed to create adapter {adapter_type}: {e}", exc_info=True)
                     record_adapter_operation("create", adapter_type, "failed")
                     raise AdapterCreationError(f"Failed to create {adapter_type}: {e}") from e
             return self._adapters[adapter_type]
@@ -52,7 +55,7 @@ class AdapterManager:
         """
         async with self._lock:
             self._registry[adapter_type] = adapter_cls
-            log_info(f"AdapterManager: Registered adapter {adapter_type}")
+            logger.info(f"Registered adapter {adapter_type}")
             record_adapter_operation("register", adapter_type, "success")
 
     async def list_adapters(self) -> Dict[str, str]:
@@ -70,5 +73,5 @@ class AdapterManager:
             for name, adapter in self._adapters.items():
                 if hasattr(adapter, "async_teardown"):
                     await adapter.async_teardown()
-                log_info(f"AdapterManager: Shutdown adapter {name}")
+                logger.info(f"Shutdown adapter {name}")
             self._adapters.clear()

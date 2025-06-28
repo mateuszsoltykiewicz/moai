@@ -2,33 +2,37 @@ import asyncio
 import websockets
 from collections import defaultdict
 from .schemas import ConfigUpdateEvent
-from .utils import log_error
-from Library.mtls.manager import MtlsManager
+from Library.logging import get_logger
+from Library.api.security import validate_jwt_for_websocket  # New security function
+
+logger = get_logger(__name__)
 
 class ConfigChangeNotifier:
-    def __init__(self, mtls_manager: MtlsManager = None):
+    def __init__(self):
         self.connections = defaultdict(list)
-        self.mtls_manager = mtls_manager
     
     async def notify(self, service_name: str):
-        """Efficient broadcasting with connection management"""
         event = ConfigUpdateEvent(service=service_name)
         message = event.json()
         
-        for websocket in self.connections.get(service_name, [])[:]:  # Copy list
+        for websocket in self.connections.get(service_name, [])[:]:
             try:
                 await websocket.send(message)
+                logger.debug(f"Notified {service_name} about config change")
             except websockets.ConnectionClosed:
                 self.connections[service_name].remove(websocket)
+                logger.info(f"Removed closed connection for {service_name}")
     
-    async def register(self, service_name: str, websocket):
-        """Secure registration with MTLS verification"""
-        if self.mtls_manager:
-            # Verify client certificate
-            if not await self.mtls_manager.verify_connection(websocket):
-                log_error(f"Rejected unverified connection for {service_name}")
+    async def register(self, service_name: str, websocket, token: str = None):
+        """Secure WebSocket registration with JWT validation"""
+        if token:
+            try:
+                # Validate JWT for WebSocket connection
+                await validate_jwt_for_websocket(token)
+            except Exception as e:
+                logger.error(f"WebSocket auth failed: {e}", exc_info=True)
                 await websocket.close(code=4001)
                 return
         
         self.connections[service_name].append(websocket)
-        log_info(f"New client registered for {service_name}")
+        logger.info(f"New client registered for {service_name}")

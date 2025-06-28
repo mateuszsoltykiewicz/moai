@@ -1,115 +1,80 @@
-# ConfigManager
+# Configuration Management Component
 
 ## Overview
 
-**ConfigManager** is an async, schema-driven configuration loader and manager for modern Python microservices and applications.  
-It supports both local file-based configuration and centralized configuration services, with hot-reload, environment variable overrides, and change notifications.
+Centralized configuration management system with support for multiple providers (file, central server). Features automatic reloading, secrets injection, and versioned configuration.
 
----
+## Features
 
-## Key Features
+- **Multi-Provider Support**: File-based and central server configurations
+- **Dynamic Reloading**: Watches for config changes and notifies listeners
+- **Secrets Integration**: Optional secrets injection from Vault
+- **Validation**: Pydantic schema validation for configurations
+- **Metrics**: Tracks operations and errors
+- **Centralized Logging**: Uses `Library.logging` component
 
-- **Async, Thread-Safe:** All operations are async and safe for concurrent use.
-- **Schema Validation:** Uses Pydantic schemas to validate configuration structure and types.
-- **Pluggable Providers:** Supports both local file-based and centralized (remote API) configuration sources.
-- **Hot Reload:** Automatically reloads configuration on file change or remote update, and notifies listeners.
-- **Environment Variable Overrides:** Allows dynamic overrides of config values via environment variables (e.g., for containerized deployments).
-- **Change Listeners:** Register async callbacks to react to config changes at runtime.
-- **Unified API:** Same interface for all providers—switch sources without changing your application code.
+## API Endpoints
 
----
+| Endpoint         | Method | Description                          | Security (Required)  |
+|------------------|--------|--------------------------------------|----------------------|
+| `/config/status` | GET    | Get current configuration            | JWT/OIDC, RBAC       |
+| `/config/update` | POST   | Update configuration                 | JWT/OIDC, RBAC       |
 
-## Providers
+## Configuration Providers
 
-- **FileConfigProvider:** Loads configuration from a local JSON file, supports environment variable overrides and hot-reload.
-- **CentralConfigProvider:** Fetches configuration from a centralized config server (via HTTP/WebSocket), supports hot-reload and notifications.
+| Provider         | Description                                                                 |
+|------------------|-----------------------------------------------------------------------------|
+| **File**         | Local file with environment variable overrides                               |
+| **Central**      | Remote configuration server with WebSocket-based change notifications        |
 
----
+## Key Concepts
 
-## Usage
+- **ConfigManager**: Core component managing provider integration and lifecycle
+- **ConfigProvider**: Abstract base class for configuration sources
+- **AppConfig**: Pydantic model defining configuration structure
 
-### 1. Choose and Initialize a Provider
+## Interactions
 
-from config.manager import ConfigManager
-from config.providers.file import FileConfigProvider
-from config.providers.central import CentralConfigProvider
-from config.schemas import AppConfig
-import os
+- **Library.api.security**: For JWT/OIDC+RBAC enforcement
+- **Library.secrets**: For secrets injection (optional)
+- **Library.logging**: Centralized logging for all operations
+- **All Microservices**: Consume configuration through listeners
 
-if os.getenv(“CONFIG_SOURCE”) == “central”:
-  provider = CentralConfigProvider(
-    server_url=os.getenv(“CONFIG_SERVER_URL”),
-    service_name=os.getenv(“SERVICE_NAME”),
-    env=os.getenv(“ENV”)
-  )
-  else:
-    provider = FileConfigProvider(
-      config_path=“config/app_config.json”,
-      env_prefix=“APP”
-    )
-config_manager = ConfigManager(provider=provider, schema=AppConfig) await config_manager.start()
+## Usage Example
 
-### 2. Access and Use Configuration
+Initialize with file provider
 
-config = await config_manager.get()
-print(config.some_setting)
+provider = FileConfigProvider("/app/config.json")
+manager = ConfigManager(provider)
+Start manager
 
-### 3. React to Hot-Reload Events
+await manager.start()
+Get current config
 
-async def on_config_change(new_config):
-  print(“Configuration updated!”, new_config)
-config_manager.add_listener(“my_listener”, on_config_change)
+config = await manager.get()
+Register listener
 
-### 4. Stop the Manager (on shutdown)
+async def config_changed(new_config: AppConfig):
+print(f"Config changed: {new_config}")
+manager.add_listener("my_service", config_changed)
 
-await config_manager.stop()
 
----
+## Potential Improvements
 
-## Environment Variable Overrides
+- Add version history for configuration changes
+- Implement configuration rollback mechanism
+- Add provider health checks
 
-- Use environment variables with the prefix (e.g., `APP__DATABASE__HOST`) to override nested config values.
-- Supports deep overrides for complex configurations.
+## Potential Bug Sources
 
----
+1. **Schema Drift**: Configuration schema changes may break validation
+2. **Provider Failures**: Central server unavailability may cause stale config
+3. **Secret Leaks**: Improper secrets handling could expose sensitive data
+4. **Concurrency Issues**: High update frequency may cause listener bottlenecks
 
-## Example Directory Structure
+## Security Best Practices
 
-config/
-├── manager.py
-├── provider.py
-├── providers/
-│   ├── file.py
-│   └── central.py
-├── schemas.py
-├── exceptions.py
-├── metrics.py
-├── utils.py
-└── README.md
-
----
-
-## Extending
-
-- Implement new providers (e.g., Consul, etcd, S3) by subclassing `ConfigProvider`.
-- Add new schema fields and validation logic in `schemas.py`.
-- Integrate with secrets managers (e.g., Vault) for secure config values.
-
----
-
-## Best Practices
-
-- Use schema validation to catch config errors early.
-- Register listeners to handle config changes dynamically (no need to restart services).
-- Use centralized config in production for consistency and auditability.
-- Use environment variable overrides for containerized or cloud deployments.
-
----
-
-## License
-
-[Your License Here]
-
----
-
-**ConfigManager powers robust, scalable, and observable configuration for your distributed applications.**
+- Validate all configuration updates against schema
+- Restrict configuration update permissions to authorized services
+- Encrypt sensitive configuration values
+- Rotate secrets regularly

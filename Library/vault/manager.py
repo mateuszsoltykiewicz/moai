@@ -7,10 +7,12 @@ import hvac
 from typing import Dict, Any, Optional, Tuple
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from .exceptions import VaultError, VaultNotFoundError, VaultConnectionError, VaultPermissionError
-from .metrics import record_vault_operation, record_vault_error, record_vault_latency
-from .utils import log_info, log_error
+from .metrics import record_vault_operation, record_vault_error
+from Library.logging import get_logger
 import cachetools
 import time
+
+logger = get_logger(__name__)
 
 class VaultManager:
     def __init__(self, addr: str, token: str, namespace: Optional[str] = None):
@@ -46,13 +48,12 @@ class VaultManager:
             # Verify connection
             if not await self._run_in_executor(self._client.is_authenticated):
                 raise VaultConnectionError("Vault authentication failed")
-            record_vault_latency("connect", time.monotonic() - start_time)
-            log_info("VaultManager: Connected to Vault")
+            logger.info("Connected to Vault")
         except (hvac.exceptions.VaultDown, hvac.exceptions.InternalServerError) as e:
             raise VaultConnectionError(f"Connection failed: {e}") from e
         except Exception as e:
             record_vault_error("connect")
-            log_error(f"Vault connection error: {e}")
+            logger.error(f"Vault connection error: {e}", exc_info=True)
             raise
 
     async def read_secret(self, path: str) -> Tuple[Dict[str, Any], int]:
@@ -85,8 +86,7 @@ class VaultManager:
                 self._cache[path] = (data, version)
                 
                 record_vault_operation("read")
-                record_vault_latency("read", time.monotonic() - start_time)
-                log_info(f"Read secret at {path}")
+                logger.info(f"Read secret at {path}")
                 return data, version
             except hvac.exceptions.InvalidPath as e:
                 raise VaultNotFoundError(str(e)) from e
@@ -94,7 +94,7 @@ class VaultManager:
                 raise VaultPermissionError(f"Permission denied for {path}") from e
             except Exception as e:
                 record_vault_error("read")
-                log_error(f"Secret read failed: {str(e)}")
+                logger.error(f"Secret read failed: {str(e)}", exc_info=True)
                 raise
 
     async def write_secret(self, path: str, data: Dict[str, Any], version: Optional[int] = None) -> int:
@@ -122,8 +122,7 @@ class VaultManager:
                     del self._cache[path]
                 
                 record_vault_operation("write")
-                record_vault_latency("write", time.monotonic() - start_time)
-                log_info(f"Wrote secret at {path}")
+                logger.info(f"Wrote secret at {path}")
                 return secret["data"]["version"]
             except hvac.exceptions.InvalidPath as e:
                 raise VaultNotFoundError(str(e)) from e
@@ -131,7 +130,7 @@ class VaultManager:
                 raise VaultPermissionError(f"Write denied for {path}") from e
             except Exception as e:
                 record_vault_error("write")
-                log_error(f"Secret write failed: {str(e)}")
+                logger.error(f"Secret write failed: {str(e)}", exc_info=True)
                 raise
 
     async def delete_secret(self, path: str) -> None:
@@ -152,15 +151,14 @@ class VaultManager:
                     del self._cache[path]
                 
                 record_vault_operation("delete")
-                record_vault_latency("delete", time.monotonic() - start_time)
-                log_info(f"Deleted secret at {path}")
+                logger.info(f"Deleted secret at {path}")
             except hvac.exceptions.InvalidPath as e:
                 raise VaultNotFoundError(str(e)) from e
             except hvac.exceptions.Forbidden as e:
                 raise VaultPermissionError(f"Delete denied for {path}") from e
             except Exception as e:
                 record_vault_error("delete")
-                log_error(f"Secret delete failed: {str(e)}")
+                logger.error(f"Secret delete failed: {str(e)}", exc_info=True)
                 raise
 
     async def renew_token(self) -> Dict[str, Any]:
@@ -184,8 +182,7 @@ class VaultManager:
                 self._last_renewal = time.time()
                 
                 record_vault_operation("renew")
-                record_vault_latency("renew", time.monotonic() - start_time)
-                log_info("Token renewed")
+                logger.info("Token renewed")
                 return {
                     "token": self._token,
                     "renewable": response["auth"]["renewable"],
@@ -193,7 +190,7 @@ class VaultManager:
                 }
             except Exception as e:
                 record_vault_error("renew")
-                log_error(f"Token renewal failed: {str(e)}")
+                logger.error(f"Token renewal failed: {str(e)}", exc_info=True)
                 raise
 
     def _validate_secret(self, data: Dict[str, Any]) -> None:

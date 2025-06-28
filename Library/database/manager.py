@@ -11,9 +11,11 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.inspection import inspect
 from .exceptions import DatabaseError, RecordNotFoundError, TableNotConfiguredError
 from .metrics import record_db_operation
-from .utils import log_info
+from Library.logging import get_logger
 
 DynamicBase = declarative_base()
+
+logger = get_logger(__name__)
 
 class DatabaseManager:
     def __init__(self, db_url: str, config_manager):
@@ -52,7 +54,7 @@ class DatabaseManager:
         async with self._engine.begin() as conn:
             for model in self._models.values():
                 await conn.run_sync(model.metadata.create_all)
-        log_info("DatabaseManager: Dynamic table setup complete")
+        logger.info("DatabaseManager: Dynamic table setup complete")
 
     def _create_model(self, table_def: dict) -> Type:
         attrs = {"__tablename__": table_def["name"]}
@@ -68,7 +70,7 @@ class DatabaseManager:
 
     async def shutdown(self):
         await self._engine.dispose()
-        log_info("DatabaseManager: Shutdown complete")
+        logger.info("DatabaseManager: Shutdown complete")
 
     def get_model(self, table_name: str) -> Type:
         if table_name not in self._models:
@@ -87,6 +89,7 @@ class DatabaseManager:
                 return self._model_to_dict(db_rec)
             except Exception as e:
                 await session.rollback()
+                logger.error(f"Create failed: {e}", exc_info=True)
                 raise DatabaseError(f"Create failed: {str(e)}") from e
 
     async def get_record(self, table_name: str, record_id: Any) -> dict:
@@ -99,6 +102,7 @@ class DatabaseManager:
                 record_db_operation("get")
                 return self._model_to_dict(db_rec)
             except Exception as e:
+                logger.error(f"Get failed: {e}", exc_info=True)
                 raise DatabaseError(f"Get failed: {str(e)}") from e
 
     async def update_record(self, table_name: str, record_id: Any, data: dict) -> dict:
@@ -116,6 +120,7 @@ class DatabaseManager:
                 return self._model_to_dict(db_rec)
             except Exception as e:
                 await session.rollback()
+                logger.error(f"Update failed: {e}", exc_info=True)
                 raise DatabaseError(f"Update failed: {str(e)}") from e
 
     async def delete_record(self, table_name: str, record_id: Any) -> None:
@@ -130,6 +135,7 @@ class DatabaseManager:
                 record_db_operation("delete")
             except Exception as e:
                 await session.rollback()
+                logger.error(f"Delete failed: {e}", exc_info=True)
                 raise DatabaseError(f"Delete failed: {str(e)}") from e
 
     async def query_records(self, table_name: str, filters: dict = None, limit: int = 100) -> List[dict]:
@@ -146,6 +152,7 @@ class DatabaseManager:
                 record_db_operation("query")
                 return [self._model_to_dict(rec) for rec in records]
             except Exception as e:
+                logger.error(f"Query failed: {e}", exc_info=True)
                 raise DatabaseError(f"Query failed: {str(e)}") from e
 
     def _model_to_dict(self, model_instance) -> dict:
