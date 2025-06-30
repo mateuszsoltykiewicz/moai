@@ -21,6 +21,7 @@ It features robust safety mechanisms, mTLS security, HomeKit integration, and co
 ## Core Microservices & Responsibilities
 
 ### AlarmsServer
+
 - Owns and creates `createAlarm` and `deleteAlarm` Kafka topics (via Helm/Strimzi).
 - Consumes from both topics; does not produce to them.
 - Adds alarms to registry and DB on `createAlarm`, marks as inactive (never deletes) on `deleteAlarm`.
@@ -35,6 +36,7 @@ It features robust safety mechanisms, mTLS security, HomeKit integration, and co
 - **Triggers power circuit cut-off relay via I2CAdapter if FATAL alarm is detected.**
 
 ### BankManager
+
 - Consumes from `sensorData`.
 - Produces to `createAlarm` and `deleteAlarm` as needed.
 - Creates/uses its own tables if not present.
@@ -45,6 +47,7 @@ It features robust safety mechanisms, mTLS security, HomeKit integration, and co
 - Full metrics, telemetry, health, secrets support.
 
 ### CANBusAdapter
+
 - Integrates with Raspberry Pi CM5 GPIO for CAN bus.
 - Owns and creates `sensorData` topic.
 - Produces sensor data, and can produce `createAlarm` or `deleteAlarm` based on CAN bus status.
@@ -57,6 +60,7 @@ It features robust safety mechanisms, mTLS security, HomeKit integration, and co
 - Full metrics, telemetry, health, secrets support.
 
 ### ConfigurationServer
+
 - Provides configuration to all services; supports hot-reload and rollout.
 - Fails to start if no configuration is provided (bootstrap via ConfigMap).
 - Produces to `createAlarm` and `deleteAlarm` as needed.
@@ -67,6 +71,7 @@ It features robust safety mechanisms, mTLS security, HomeKit integration, and co
 - Full state, secrets, health, metrics, telemetry support.
 
 ### DisasterDetector
+
 - Monitors FATAL alarms from AlarmsServer (API or Kafka).
 - Only monitors water temperature if a HeatingJob is running.
 - Produces to `DisasterDetected` topic when disaster is detected.
@@ -82,6 +87,7 @@ It features robust safety mechanisms, mTLS security, HomeKit integration, and co
 - Clears all disaster-specific alarms on startup.
 
 ### HeatingJob
+
 - Triggered by Kubernetes API or controller (e.g., custom JobController).
 - Produces to `I2CHeating` topic.
 - Consumes from `sensorData` (with filter).
@@ -96,12 +102,14 @@ It features robust safety mechanisms, mTLS security, HomeKit integration, and co
 - Full metrics, telemetry, health, secrets, state support.
 
 ### HomeKitBridge
+
 - Integrates with StateRegistry to add/remove accessories.
 - Fetches configuration and accessory schema from ConfigurationServer or Library.
 - Raises alarm if any backend is not reachable via StateRegistry.
 - APIs protected by mTLS and authentication.
 
 ### I2CAdapter
+
 - Controls relays (gas valve, spark, power cut-off) via Raspberry Pi Pico.
 - **On FATAL alarm (from AlarmsServer), triggers power cut-off relay to physically disconnect heater power.**
 - Clears all I2C adapter-specific alarms on startup.
@@ -113,12 +121,14 @@ It features robust safety mechanisms, mTLS security, HomeKit integration, and co
 - Full metrics, telemetry, health, secrets, state support.
 
 ### SecretsRotator
+
 - Rotates secrets for all services via Vault.
 - Checks that Vault and database are deployed before operating.
 - Fails if any critical dependency is missing.
 - APIs protected by mTLS and authentication.
 
 ### StateRegistry
+
 - Tracks all deployed microservices and their status.
 - Integrates with HomeKitBridge for accessory configuration.
 - Discovers services via Kubernetes DNS or API.
@@ -128,6 +138,14 @@ It features robust safety mechanisms, mTLS security, HomeKit integration, and co
 - Acts as cluster status registry.
 - Backs up state to database; creates tables if not present.
 - APIs protected by mTLS and authentication.
+
+### ExceptionsServer
+
+- Collects exceptions occurred across kubernetes microservices
+- Store it's state in StateServer
+- Works with ServiceRegistry and ServiceDiscovery
+- Fetches configuration from ConfigurationServer
+- Communicates with HomeKitBridge, acts as an accessory to provide exceptions count
 
 ---
 

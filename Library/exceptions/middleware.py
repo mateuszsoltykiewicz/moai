@@ -7,6 +7,7 @@ from .schemas import ExceptionPayload
 from .forwarder import forward_exception
 from Library.logging import get_logger
 from Library.metrics import record_exception_occurred
+from time import time
 
 logger = get_logger(__name__)
 
@@ -31,7 +32,7 @@ class ExceptionHandlingMiddleware(BaseHTTPMiddleware):
                 path=request.url.path,
                 method=request.method,
                 headers=dict(request.headers),
-                timestamp=time.time()
+                timestamp=time()
             )
             
             # Log locally
