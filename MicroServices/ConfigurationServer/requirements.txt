@@ -1,0 +1,4 @@
+fastapi==0.110.0
+uvicorn==0.29.0
+Library-core==1.0.0  # Your internal library package
+prometheus-client==0.20.0

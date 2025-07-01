@@ -1,233 +1,65 @@
-# IoT Microservices Platform for Heater Control (Raspberry Pi CM5)
+# Microservices Platform Overview
 
-## Overview
+This document summarizes the key microservices in the platform, their responsibilities, and integration points.
 
-This platform implements a **mission-critical, event-driven IoT control system** for a single-site water heater, built on Kubernetes with Strimzi Kafka, Vault, and Prometheus.  
-It features robust safety mechanisms, mTLS security, HomeKit integration, and comprehensive observability.  
-**If a FATAL alarm occurs, the system will cut power to the heater and require manual intervention for recovery.**
+## Microservices List and Responsibilities
 
----
+| Microservice             | Core Responsibilities                                                                                                                      |
+|--------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|
+| **ConfigurationServer**  | Centralized configuration provider with hot-reload, integrates with Vault, registry, state, exposes metrics, tracing, health, mTLS, RBAC.  |
+| **ServiceRegistry**      | Tracks microservices and status, integrates with HomeKitBridge, manages alarms, exposes APIs with mTLS, RBAC, state, config, metrics, tracing, health. |
+| **StateServer**          | Central state store for all services, exposes APIs with mTLS, RBAC, metrics, tracing, health.                                              |
+| **SecretsRotator**       | Rotates secrets via Vault, checks dependencies, exposes APIs with mTLS, RBAC.                                                              |
+| **AlarmsServer**         | Manages alarm lifecycle, history, triggers power cut-off on FATAL alarms, integrates with I2CAdapter and HomeKitBridge.                    |
+| **BankManager**          | Handles sensor data, produces alarms, manages transactions, stops on FATAL alarms, integrates with AlarmsServer.                            |
+| **CANBusAdapter**        | Integrates with Pi GPIO for CAN bus, produces sensor data and alarms, clears CANBus alarms on startup, stops on FATAL alarms.               |
+| **DisasterDetector**     | Monitors FATAL alarms, detects disasters, produces DisasterDetected events, stops on FATAL alarms.                                          |
+| **HeatingJob**           | Triggered by K8s/controller, manages heating cycles, raises/clears alarms, fails on temperature issues or FATAL alarms.                     |
+| **HomeKitBridge**        | Integrates with StateRegistry for accessories, fetches config/schema, raises alarms if backend unreachable, exposes APIs with mTLS, RBAC.   |
+| **HomeKitProtocolBridge**| Exposes platform accessories to Apple HomeKit via HAP, dynamically manages accessories, integrates via WebSocket with HomeKitBridge.        |
+| **ExceptionsServer**     | Collects and stores exceptions from all microservices, raises security alarms for unauthorized services, attempts to fail unauthorized services. |
+| **I2CAdapter**           | Controls relays via Raspberry Pi Pico, triggers power cut-off on FATAL alarms, exposes commands for power and heating control.              |
+| **ServiceDiscovery**     | Discovers services via Kubernetes API/DNS, enforces allowed list from Vault, fails unauthorized services, updates ServiceRegistry.           |
 
-## Architecture Principles
+## Integration and Common Components
 
-- **Event-driven:** Kafka is the backbone for all inter-service communication.
-- **Single-site, safety-first:** Controls one heater (Raspberry Pi CM5), not a distributed cloud system.
-- **Observability:** All alarms, health, and metrics are visible in HomeKit and Prometheus/Grafana.
-- **Security:** mTLS (with cert-manager) and API authentication are enforced for all API-enabled pods.
-- **Manual disaster recovery:** No auto-restart after FATAL; operator reviews alarms in HomeKit and restarts manually.
+All microservices integrate with the following common components and patterns:
 
----
+- JWT/OIDC and RBAC for security enforcement
+- mTLS for secure communication
+- Vault for secrets management and configuration
+- Prometheus metrics and OpenTelemetry tracing for observability
+- Centralized logging and exception forwarding via Library components
+- Service discovery and registry for dynamic endpoint resolution
+- Async FastAPI with Uvicorn and asynccontextmanager lifespan for production-grade async services
 
-## Core Microservices & Responsibilities
+## Directory Structure for Each Microservice
 
-### AlarmsServer
+MyMicroservice/
+├── main.py
+├── api.py
+├── manager.py
+├── models.py
+├── schemas.py
+├── exceptions.py
+├── metrics.py
+├── config.py
+├── README.md
+├── init.py
+├── requirements.txt
+└── tests/
+└── test_api.py
 
-- Owns and creates `createAlarm` and `deleteAlarm` Kafka topics (via Helm/Strimzi).
-- Consumes from both topics; does not produce to them.
-- Adds alarms to registry and DB on `createAlarm`, marks as inactive (never deletes) on `deleteAlarm`.
-- Maintains full alarm history (soft-delete only).
-- Creates tables if not present.
-- Keeps operational state in StateServer.
-- Fetches config from ConfigurationServer at startup and on hot-reload.
-- Exposes Prometheus metrics, OpenTelemetry tracing, health endpoints.
-- Supports secrets rotation via Vault.
-- APIs protected by mTLS (cert-manager injected) and authentication.
-- Acts as backend for HAP accessory, reporting current alarms to HomeKit/iPhone.
-- **Triggers power circuit cut-off relay via I2CAdapter if FATAL alarm is detected.**
+## Deployment and Best Practices
 
-### BankManager
+- Each microservice is independently deployable and versioned.
+- Use Kubernetes for orchestration with health and readiness probes.
+- Secure all communications with mTLS and enforce RBAC policies.
+- Use Vault for centralized secrets and configuration management.
+- Implement comprehensive logging, metrics, and tracing for observability.
+- Follow fail-fast and circuit breaker patterns for resilience.
+- Provide comprehensive README.md and tests for each microservice.
 
-- Consumes from `sensorData`.
-- Produces to `createAlarm` and `deleteAlarm` as needed.
-- Creates/uses its own tables if not present.
-- On FATAL alarm (from AlarmsServer or local logic), **crashes and stops processing**.
-- APIs protected by mTLS and authentication.
-- Fetches config from ConfigurationServer with hot-reload.
-- Integrates with AlarmsServer API for alarm status.
-- Full metrics, telemetry, health, secrets support.
+## Contact and Support
 
-### CANBusAdapter
-
-- Integrates with Raspberry Pi CM5 GPIO for CAN bus.
-- Owns and creates `sensorData` topic.
-- Produces sensor data, and can produce `createAlarm` or `deleteAlarm` based on CAN bus status.
-- Creates/uses its own tables if not present.
-- On FATAL alarm, **crashes and stops processing**.
-- Clears all CANBus-specific alarms on startup.
-- APIs protected by mTLS and authentication.
-- Fetches config from ConfigurationServer with hot-reload.
-- Integrates with AlarmsServer API for alarm status.
-- Full metrics, telemetry, health, secrets support.
-
-### ConfigurationServer
-
-- Provides configuration to all services; supports hot-reload and rollout.
-- Fails to start if no configuration is provided (bootstrap via ConfigMap).
-- Produces to `createAlarm` and `deleteAlarm` as needed.
-- Creates/uses its own tables if not present.
-- On FATAL alarm, **crashes and stops processing**.
-- Clears all configuration-specific alarms on startup.
-- APIs protected by mTLS and authentication.
-- Full state, secrets, health, metrics, telemetry support.
-
-### DisasterDetector
-
-- Monitors FATAL alarms from AlarmsServer (API or Kafka).
-- Only monitors water temperature if a HeatingJob is running.
-- Produces to `DisasterDetected` topic when disaster is detected.
-- Owns and creates `DisasterDetected` topic.
-- Consumes from `sensorData` (with filter).
-- Creates/uses its own tables if not present.
-- On FATAL alarm, **crashes and stops processing**.  
-  **Will not be restarted by Kubernetes until platform is manually restarted.**
-- APIs protected by mTLS and authentication.
-- Fetches config from ConfigurationServer with hot-reload.
-- Integrates with AlarmsServer API for alarm status.
-- Full metrics, telemetry, health, secrets support.
-- Clears all disaster-specific alarms on startup.
-
-### HeatingJob
-
-- Triggered by Kubernetes API or controller (e.g., custom JobController).
-- Produces to `I2CHeating` topic.
-- Consumes from `sensorData` (with filter).
-- Creates/uses its own tables if not present.
-- Raises heating alarm when triggered, deletes when finished.
-- Fails with exit code 1 and raises alarm if temperature change is not detected within configured period.
-- On FATAL alarm, **fails immediately**.
-- Clears all heating job-specific alarms on startup.
-- APIs protected by mTLS and authentication.
-- Fetches config from ConfigurationServer with hot-reload.
-- Integrates with AlarmsServer API for alarm status.
-- Full metrics, telemetry, health, secrets, state support.
-
-### HomeKitBridge
-
-- Integrates with StateRegistry to add/remove accessories.
-- Fetches configuration and accessory schema from ConfigurationServer or Library.
-- Raises alarm if any backend is not reachable via StateRegistry.
-- APIs protected by mTLS and authentication.
-
-### I2CAdapter
-
-- Controls relays (gas valve, spark, power cut-off) via Raspberry Pi Pico.
-- **On FATAL alarm (from AlarmsServer), triggers power cut-off relay to physically disconnect heater power.**
-- Clears all I2C adapter-specific alarms on startup.
-- On FATAL alarm, **fails and stops processing**.
-- Produces to `createAlarm` and `deleteAlarm` as needed.
-- APIs protected by mTLS and authentication.
-- Fetches config from ConfigurationServer with hot-reload.
-- Integrates with AlarmsServer API for alarm status.
-- Full metrics, telemetry, health, secrets, state support.
-
-### SecretsRotator
-
-- Rotates secrets for all services via Vault.
-- Checks that Vault and database are deployed before operating.
-- Fails if any critical dependency is missing.
-- APIs protected by mTLS and authentication.
-
-### StateRegistry
-
-- Tracks all deployed microservices and their status.
-- Integrates with HomeKitBridge for accessory configuration.
-- Discovers services via Kubernetes DNS or API.
-- FATAL alarm if unauthorized service is detected.
-- Clears registry alarms on startup; deletes alarm if service becomes discoverable again.
-- Can stop watching specific services via API.
-- Acts as cluster status registry.
-- Backs up state to database; creates tables if not present.
-- APIs protected by mTLS and authentication.
-
-### ExceptionsServer
-
-- Collects exceptions occurred across kubernetes microservices
-- Store it's state in StateServer
-- Works with ServiceRegistry and ServiceDiscovery
-- Fetches configuration from ConfigurationServer
-- Communicates with HomeKitBridge, acts as an accessory to provide exceptions count
-
----
-
-## Safety & Disaster Handling
-
-- **Power Circuit Cut-Off:**  
-  On FATAL alarm, I2CAdapter triggers a dedicated relay to physically cut power to the heater. This is a mandatory safety feature and must be tested during commissioning.
-- **No Automated Disaster Recovery:**  
-  If a FATAL event occurs, the system will not auto-restart. HomeKit/iPhone app will show the alarm and status. Only manual intervention (platform restart) can clear a FATAL disaster state.
-- **Startup Self-Check:**  
-  All services must clear their own service-specific alarms on startup and create database tables if not present.
-- **Crash on FATAL:**  
-  All services must crash and stop operating on FATAL alarm.
-
----
-
-## Security
-
-- **mTLS Everywhere:**  
-  All pods exposing APIs run with mTLS enabled. Certificates are injected via cert-manager.
-- **API Authentication:**  
-  All APIs that require authentication enforce it (JWT, API key, or OAuth2, as appropriate).
-- **Vault Integration:**  
-  All secrets are managed and rotated via Vault.
-
----
-
-## Observability
-
-- **Metrics:**  
-  All services expose Prometheus metrics.
-- **Tracing:**  
-  All services support OpenTelemetry tracing.
-- **Health:**  
-  All services expose health endpoints.
-- **Alarms:**  
-  All alarms are visible in HomeKit and via API.
-
----
-
-## Communication Matrix
-
-| Topic               | Producers                  | Consumers                 |
-|---------------------|---------------------------|---------------------------|
-| `createAlarm`       | All services               | AlarmsServer              |
-| `deleteAlarm`       | All services               | AlarmsServer              |
-| `sensorData`        | CANBusAdapter              | BankManager, HeatingJob   |
-| `DisasterDetected`  | DisasterDetector           | StateRegistry             |
-| `I2CHeating`        | HeatingJob                 | I2CAdapter                |
-
----
-
-## Deployment & Startup
-
-1. **Deploy foundational services first:**  
-   - ConfigurationServer  
-   - SecretsRotator  
-   - StateRegistry  
-   - AlarmsServer  
-2. **Deploy hardware adapters and business logic services next.**
-3. **All services must validate configuration and dependencies at startup.**
-4. **All services must clear their own alarms on startup.**
-
----
-
-## Additional Notes
-
-- **Retention & Archival:**  
-  Alarms are never physically deleted from the database; status is updated to inactive. Consider retention/archival policies for long-term storage.
-- **Hardware Watchdog:**  
-  For maximum safety, implement a hardware watchdog on the Raspberry Pi Pico to ensure relays return to a safe state on software failure.
-- **HomeKit Integration:**  
-  HomeKitBridge and AlarmsServer ensure that all critical statuses and alarms are visible to the operator’s iPhone.
-
----
-
-## License
-
-[Your License Here]
-
----
-
-**This platform is designed for safety, reliability, and operational transparency.  
-If a disaster occurs, the system will halt and await operator review and restart.  
-All alarms and statuses are visible in HomeKit and via API for maximum clarity and control.**
+For questions or support, please contact the platform engineering team.
