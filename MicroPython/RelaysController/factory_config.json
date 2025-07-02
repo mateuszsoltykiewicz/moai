@@ -1,0 +1,11 @@
+{
+  "relay_pins": [18, 19, 20, 21],
+  "command_map": {
+    "ON_1": 0,
+    "OFF_1": 1,
+    "ON_2": 2,
+    "OFF_2": 3
+  },
+  "default_state": [0, 0, 0, 0],
+  "api_token": "REPLACE_ME_WITH_A_SECURE_TOKEN"
+}
