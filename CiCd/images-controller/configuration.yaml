@@ -1,0 +1,73 @@
+global:
+  repositoriesPath: "./"            # Path where repositories will be cloned/pulled
+  awsRegion: "eu-central-1"         # AWS region for ECR
+
+ecr:
+  tagsMutability: "MUTABLE"         # or "IMMUTABLE"
+  login: "true"                     # Whether to perform ECR login
+  policyRequired: true              # Whether to apply lifecycle policy
+
+services:
+  - name: backend
+    local_path: "./backend"
+    repo_url: "git@65.108.49.98:digital-first-2.0/backend-2.0.git"
+    branch: "uat"
+    environment: "uat"
+    tag: "latest"
+    copy_dir: "../configuration/digitalfirst/backend/uat"
+  - name: frontend
+    local_path: "./frontend"
+    repo_url: "git@65.108.49.98:digital-first-2.0/frontend-2.0.git"
+    branch: "uat"
+    environment: "uat"
+    tag: "latest"
+    copy_dir: "../configuration/digitalfirst/frontend/uat"
+  - name: canvas-filler
+    local_path: "./canvas-filler"
+    repo_url: "git@65.108.49.98:digital-first-2.0/canvas_filler.git"
+    branch: "uat"
+    environment: "uat"
+    tag: "latest"
+    copy_dir: "../configuration/digitalfirst/canvas_filler/uat"
+  - name: researcher
+    local_path: "./researcher"
+    repo_url: "git@65.108.49.98:digital-first-2.0/researcher.git"
+    branch: "uat"
+    environment: "uat"
+    tag: "latest"
+    copy_dir: "../configuration/digitalfirst/researcher/uat"
+  - name: websocket-server
+    local_path: "./websocket-server"
+    repo_url: "git@65.108.49.98:digital-first-2.0/websocket-server.git"
+    branch: "uat"
+    environment: "uat"
+    tag: "latest"
+    copy_dir: "../configuration/digitalfirst/websocket-server/uat"
+  - name: input-data-processor
+    local_path: "./input-data-processor"
+    repo_url: "git@65.108.49.98:digital-first-2.0/input_data_processor.git"
+    branch: "uat"
+    environment: "uat"
+    tag: "latest"
+    copy_dir: "../configuration/digitalfirst/input-data-processor/uat"
+  - name: qdrant-connector
+    local_path: "./qdrant-connector"
+    repo_url: "git@65.108.49.98:digital-first-2.0/qdrant_connector.git"
+    branch: "uat"
+    environment: "uat"
+    tag: "latest"
+    copy_dir: "../configuration/digitalfirst/qdrant-connector/uat"
+  - name: llm-answer-engine
+    local_path: "./websearcher"
+    repo_url: "git@65.108.49.98:digital-first-2.0/llm-answer-engine.git"
+    branch: "uat"
+    environment: "uat"
+    tag: "latest"
+    copy_dir: "../configuration/digitalfirst/llm-answer-engine/uat"
+  - name: hocus-pocus
+    local_path: "./hocus-pocus"
+    repo_url: "git@65.108.49.98:digital-first-2.0/tiptap-hokuspokus-server.git"
+    branch: "uat"
+    environment: "uat"
+    tag: "latest"
+    copy_dir: "../configuration/digitalfirst/tiptap-hokuspokus-server/uat"
