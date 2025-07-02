@@ -1,0 +1,31 @@
+middleware:
+  - name: kafka
+    enabled: true
+    repository: "https://strimzi.io/charts/"
+    chart: "strimzi-kafka-operator"
+    version: "0.39.0"
+    namespace: "kafka"
+    values_file: "../../Configuration/Helm/dev/middleware/kafka/values.yaml"
+    variables:
+      kafka.replicas: 3
+      zookeeper.replicas: 3
+
+  - name: postgresql
+    enabled: true
+    repository: "https://charts.bitnami.com/bitnami"
+    chart: "postgresql"
+    version: "15.1.0"
+    namespace: "database"
+    values_file: "../../Configuration/Helm/dev/middleware/postgresql/values.yaml"
+    variables:
+      primary.persistence.size: 20Gi
+
+  - name: redis
+    enabled: true
+    repository: "https://charts.bitnami.com/bitnami"
+    chart: "redis"
+    version: "18.3.2"
+    namespace: "cache"
+    values_file: "../../Configuration/Helm/dev/middleware/redis/values.yaml"
+    variables:
+      replica.replicaCount: 2

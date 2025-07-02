@@ -1,0 +1,21 @@
+apps:
+  - name: alarms-server
+    enabled: true
+    namespace: platform
+    chart: ./modules/alarms-server
+    version: 1.2.3
+    values_file: ../../Configuration/Helm/dev/applications/alarms-server/values.yaml
+    image_digest: "sha256:abcdef123..."
+    variables:
+      replicaCount: 2
+      image_tag: "v1.2.3"
+
+  - name: state-server
+    enabled: false
+    namespace: platform
+    chart: ./modules/state-server
+    version: 2.0.0
+    values_file: ../../Configuration/Helm/dev/applications/state-server/values.yaml
+    image_digest: "sha256:12345abcdef..."
+    variables:
+      replicaCount: 1

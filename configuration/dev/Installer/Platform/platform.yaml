@@ -1,0 +1,73 @@
+platform:
+  - name: ingress-nginx
+    enabled: true
+    repository: "https://kubernetes.github.io/ingress-nginx"
+    chart: "ingress-nginx"
+    version: "4.10.0"
+    namespace: "ingress"
+    values_file: "../../Configuration/Helm/dev/platform/ingress-nginx/values.yaml"
+    variables:
+      controller.replicaCount: 2
+      controller.service.type: LoadBalancer
+
+  - name: cert-manager
+    enabled: true
+    repository: "https://charts.jetstack.io"
+    chart: "cert-manager"
+    version: "1.13.2"
+    namespace: "cert-manager"
+    values_file: "../../Configuration/Helm/dev/platform/cert-manager/values.yaml"
+    variables:
+      installCRDs: true
+
+  - name: docker-registry
+    enabled: true
+    repository: "https://charts.bitnami.com/bitnami"
+    chart: "harbor"
+    version: "1.14.0"
+    namespace: "registry"
+    values_file: "../../Configuration/Helm/dev/platform/docker-registry/values.yaml"
+    variables:
+      persistence.enabled: true
+      persistence.size: 50Gi
+
+  - name: istio
+    enabled: true
+    repository: "https://istio-release.storage.googleapis.com/charts"
+    chart: "istiod"
+    version: "1.21.0"
+    namespace: "istio-system"
+    values_file: "../../Configuration/Helm/dev/platform/istio/values.yaml"
+    variables:
+      global.proxy.resources.limits.cpu: 500m
+      global.proxy.resources.limits.memory: 512Mi
+
+  - name: keycloak
+    enabled: true
+    repository: "https://charts.bitnami.com/bitnami"
+    chart: "keycloak"
+    version: "22.0.1"
+    namespace: "keycloak"
+    values_file: "../../Configuration/Helm/dev/platform/keycloak/values.yaml"
+    variables:
+      replicaCount: 2
+
+  - name: vault
+    enabled: true
+    repository: "https://helm.releases.hashicorp.com"
+    chart: "vault"
+    version: "0.25.0"
+    namespace: "vault"
+    values_file: "../../Configuration/Helm/dev/platform/vault/values.yaml"
+    variables:
+      server.ha.enabled: true
+
+  - name: strimzi-topic-operator
+    enabled: true
+    repository: "https://strimzi.io/charts/"
+    chart: "strimzi-kafka-operator"
+    version: "0.39.0"
+    namespace: "kafka"
+    values_file: "../../Configuration/Helm/dev/platform/strimzi-topic-operator/values.yaml"
+    variables:
+      watchedNamespace: "kafka"

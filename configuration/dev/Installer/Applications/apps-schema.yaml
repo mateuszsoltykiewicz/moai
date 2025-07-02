@@ -1,0 +1,11 @@
+apps: list(include('app'))
+---
+app:
+  name: str()
+  enabled: bool()
+  namespace: str(required=False)
+  chart: str()
+  version: str()
+  values_file: str(required=False)
+  image_digest: str(required=False)
+  variables: map()

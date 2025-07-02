@@ -1,13 +1,12 @@
-resource "helm_release" "apps" {
-  for_each = { for app in local.app_configs : app.name => app if app.enabled }
+resource "helm_release" "cicd" {
+  for_each = { for app in local.cicd_configs : app.name => app if app.enabled }
 
-  name       = "${var.environment}-applications-${each.value.name}"
+  name       = "${var.environment}-cicd-${each.value.name}"
   repository = each.value.repository != null ? each.value.repository : null
   chart      = each.value.chart
   version    = each.value.version
-  namespace  = each.value.namespace != null ? each.value.namespace : "default"
+  namespace  = each.value.namespace != null ? each.value.namespace : "cicd"
 
-  # Optional: Load values file if provided
   dynamic "values" {
     for_each = try([each.value.values_file], [])
     content {
@@ -15,7 +14,6 @@ resource "helm_release" "apps" {
     }
   }
 
-  # Pass additional variables as set blocks (including image digests)
   dynamic "set" {
     for_each = each.value.variables != null ? [for k, v in each.value.variables : { name = k, value = v }] : []
     content {
