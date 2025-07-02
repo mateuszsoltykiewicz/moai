@@ -1,0 +1,287 @@
+# -- Namespace Configuration
+namespace:
+  create: true
+  name: "middleware"
+
+environment:
+  name: "uat"
+
+# -- Application Configuration
+replicaCount: 1
+application:
+  name: "web-socker-server"
+  type: "statefulset"
+  description: "Backend for DigitalFirstAi"
+  container:
+    port:
+      containerPort: 3000
+
+# -- AWS config
+aws:
+  accountId: "775292115464"  # Single source for AWS account ID
+  region: "eu-central-1"
+
+# -- Owner Metadata
+owner:
+  name: "DigitalFirstAi"
+  email: "m.soltykiewicz@digitalfirst.ai"
+
+# -- Component
+component:
+  name: "DigitalFirstAi"
+
+# -- Horizontal Pod Autoscaling (HPA)
+hpa:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 2
+  # Optional: custom metrics (otherwise defaults to CPU)
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+  # Optional: advanced scaling behavior
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Min
+      policies:
+        - type: Pods
+          value: 4
+          periodSeconds: 60
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+
+# -- Pod Disruption Budget (PDB)
+podDisruptionBudget:
+  enabled: false  # New section
+  minAvailable: 1
+
+# -- Argo Rollouts Configuration
+rollout:
+  enabled: false  # New section
+  strategy: canary
+  steps:
+    - setWeight: 25
+    - pause: 
+        duration: 60
+    - setWeight: 50
+    - pause: 
+        duration: 60
+
+# -- Network Policy
+networkPolicy:
+  enabled: false
+
+  # Optional: If omitted, the template will use defaults:
+  #   app: {{ .Values.application.name }}
+  #   role: {{ .Values.component.name | default "backend" }}
+  podSelector:
+    matchLabels:
+      app: my-backend
+      role: api
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow traffic from pods with label app=frontend in any namespace on port 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # Allow traffic from a specific namespace and a specific pod label
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              environment: staging
+        - podSelector:
+            matchLabels:
+              role: worker
+      ports:
+        - protocol: TCP
+          port: 9090
+
+    # Allow traffic from a CIDR block, except a specific IP
+    - from:
+        - ipBlock:
+            cidr: 10.0.0.0/24
+            except:
+              - 10.0.0.5/32
+      ports:
+        - protocol: TCP
+          port: 443
+
+  egress:
+    # Allow egress to anywhere on port 443 (e.g., for HTTPS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Allow egress to pods with label app=database in the same namespace
+    - to:
+        - podSelector:
+            matchLabels:
+              app: database
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # Allow egress to a namespace with label team=analytics on all UDP ports 30000-32767
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              team: analytics
+      ports:
+        - protocol: UDP
+          port: 30000
+          endPort: 32767
+
+# -- Secret Management
+secrets:
+  enabled: false
+  list:
+    - name: backend-db-secret
+      data:
+        username: "ZGY="        # echo -n 'df' | base64
+        password: "c2VjcmV0"    # echo -n 'secret' | base64
+    - name: api-key-secret
+      data:
+        api_key: "YWJjMTIz"     # echo -n 'abc123' | base64
+    - name: custom-secret
+      namespace: "custom-namespace"
+      data:
+        foo: "YmFy"             # echo -n 'bar' | base64
+
+# -- RBAC Configuration
+# -- Service Account Configuration
+serviceAccount:
+  enable: false
+
+# Pod role for kubernetes security
+role:
+  enable: false
+  # Optional: override the generated name
+  name: my-custom-role
+  # Optional: fully custom rules
+  rules:
+    - apiGroups: [""]
+      resources: ["configmaps", "secrets", "pods"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["apps"]
+      resources: ["deployments"]
+      verbs: ["get", "list"]
+    - apiGroups: ["batch"]
+      resources: ["jobs"]
+      verbs: ["get", "list", "create", "delete"]
+
+clusterRole:
+  enable: false
+
+# -- Existing configuration below remains unchanged
+# -------------------------------------------------
+# -- Image Configuration
+image:
+  uri: "775292115464.dkr.ecr.eu-central-1.amazonaws.com/uat-applications/web-socket-server"
+  tag: "latest"
+
+# -- Service Configuration
+service:
+  enable: true
+  type: ClusterIP
+  port: 3000
+
+# -- Resource Limits
+resources:
+  enable: true
+  limits:
+    cpu: "1000m"
+    memory: "2048Mi"
+  requests:
+    cpu: "500m"
+    memory: "1024Mi"
+
+# -- Probes Configuration
+livenessProbe:
+  enable: true
+  cmd: true
+  http: false
+
+readinessProbe:
+  enable: true
+  cmd: true
+  http: false
+
+ready:
+  path: "/ready"
+  port: 3000
+
+health:
+  path: "/healthy"
+  port: 3000
+
+# -- Ingress Configuration
+ingress:
+  enable: true
+  className: "alb"
+  annotations:
+    kubernetes.io/ingress.class: "alb"
+    alb.ingress.kubernetes.io/group.name: "uat"
+    alb.ingress.kubernetes.io/scheme: "internet-facing"
+    alb.ingress.kubernetes.io/target-type: "ip"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:eu-central-1:775292115464:certificate/6362e335-9b78-4255-bd74-02da8ebf2f88"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/actions.ssl-redirect: '{"Type": "redirect", "RedirectConfig": { "Protocol": "HTTPS", "Port": "443", "StatusCode": "HTTP_301"}}'
+    alb.ingress.kubernetes.io/forwarded-headers: Authorization
+  host: testdigitalfirst.com
+
+# -- Storage Configuration
+storageClass:
+  enable: true
+
+volumes:
+  enable: true
+  list: []
+
+volume:
+  size: 10
+  mountPath: "/mnt/data"
+  readOnly: false
+  hostPath: "/mnt/data"
+  accessMode: "ReadWriteOnce"
+
+# -- Target Group Configuration
+targetGroup:
+  enable: false
+  arn: ""
+
+variables:
+  APP_PORT: 3000
+  REDIS_HOST: "redis-service.dfai.svc.cluster.local"
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: "dfaidfaidfaidfai"

@@ -1,0 +1,111 @@
+application:
+  name: alarms-server
+  type: deployment
+
+environment:
+  name: production
+
+namespace:
+  name: platform
+
+image:
+  repository: yourrepo/alarms-server
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+service:
+  enable: true
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+
+ingress:
+  enable: true
+  host: alarms.local
+  className: nginx
+  annotations: {}
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+serviceAccount:
+  enable: true
+
+networkPolicy:
+  enabled: true
+  podSelector:
+    matchLabels:
+      app: alarms-server
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              environment: platform
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+
+servicemonitor:
+  enabled: true
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+
+variables:
+  LOG_LEVEL: "info"
+  FEATURE_FLAG: "true"
+
+secrets:
+  enabled: true
+  list:
+    - name: db
+      data:
+        username: dXNlcm5hbWU=  # base64 for 'username'
+        password: cGFzc3dvcmQ=  # base64 for 'password'
+
+resources:
+  enable: true
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+
+livenessProbe:
+  enable: true
+  http: true
+  path: /health/live
+  port: 8000
+
+readinessProbe:
+  enable: true
+  http: true
+  path: /health/ready
+  port: 8000
+
+initContainers: []
+
+nodeSelector:
+  kubernetes.io/arch: arm64
