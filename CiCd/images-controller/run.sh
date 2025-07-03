@@ -16,9 +16,6 @@ pip install --upgrade pip
 # Install requirements
 pip install -r ./requirements.txt
 
-# Export token
-#export GITLAB_TOKEN=glpat-1ozxFpCi_8yH7iaghx7i
-
 # Run the script (pass all arguments)
 python ./images-controller.py
 EXIT_CODE=$?
