@@ -6,6 +6,7 @@ from shutil import rmtree
 import subprocess
 import yaml
 from git import Repo
+import re
 
 # Logger configuration
 logger = logging.getLogger("microk8s_deployer")
@@ -39,30 +40,43 @@ def docker_login_microk8s_registry(registry="localhost:32000"):
     # But if you have authentication, perform login here
     logger.info(f"Assuming MicroK8s registry at {registry} does not require login.")
 
-def build_and_push_image(local_path, image_tag, registry="localhost:32000"):
-    full_image_tag = f"{registry}/{image_tag}"
-    logger.info(f"Building Docker image: {full_image_tag}")
+def build_and_push_image_with_digest(local_path, image_name, registry):
+    """
+    Build and push a Docker image to a configurable registry, and return the digest reference.
+    """
+    temp_tag = f"{registry}/{image_name}:temp"
+    logger.info(f"Building Docker image: {temp_tag}")
     try:
-        subprocess.run(
-            ["docker", "build", "-t", full_image_tag, local_path],
-            check=True
-        )
-        logger.info(f"Built image: {full_image_tag}")
+        subprocess.run(["docker", "build", "-t", temp_tag, local_path], check=True)
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to build image {full_image_tag}: {e}")
-        return False
+        logger.error(f"Failed to build image {temp_tag}: {e}")
+        return None
 
-    logger.info(f"Pushing image: {full_image_tag}")
+    logger.info(f"Pushing image: {temp_tag}")
     try:
-        subprocess.run(
-            ["docker", "push", full_image_tag],
-            check=True
-        )
-        logger.info(f"Pushed image: {full_image_tag}")
-        return True
+        subprocess.run(["docker", "push", temp_tag], check=True)
     except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to push image {full_image_tag}: {e}")
-        return False
+        logger.error(f"Failed to push image {temp_tag}: {e}")
+        return None
+
+    logger.info(f"Retrieving digest for image: {temp_tag}")
+    try:
+        output = subprocess.check_output(
+            ["docker", "inspect", "--format={{index .RepoDigests 0}}", temp_tag]
+        ).decode().strip()
+        match = re.match(r".+@(?P<digest>sha256:[a-f0-9]+)", output)
+        if not match:
+            logger.error(f"Could not extract digest from: {output}")
+            return None
+        digest = match.group("digest")
+        digest_ref = f"{registry}/{image_name}@{digest}"
+        logger.info(f"Image digest reference: {digest_ref}")
+    except Exception as e:
+        logger.error(f"Failed to get image digest: {e}")
+        return None
+
+    subprocess.run(["docker", "rmi", temp_tag], check=False)
+    return digest_ref
 
 def process_service(service_config, config):
     service_name = service_config["name"]
@@ -107,7 +121,8 @@ def process_service(service_config, config):
 
         # Build and push image to MicroK8s registry
         docker_login_microk8s_registry(registry)
-        if not build_and_push_image(local_path, IMAGE_TAG, registry):
+        digest_ref = build_and_push_image_with_digest(local_path, IMAGE_TAG, registry)
+        if not digest_ref:
             return False
 
         # Cleanup cloned repo if we cloned it
@@ -115,7 +130,8 @@ def process_service(service_config, config):
             rmtree(local_path)
             logger.info(f"Cleaned up repository: {local_path}")
 
-        return True
+        # Return digest reference for further use
+        return digest_ref
 
     except Exception as e:
         logger.error(f"Failed processing {service_name}: {str(e)}")
@@ -125,10 +141,12 @@ def main():
     config = load_config()
     results = []
     for service in config["services"]:
-        success = process_service(service, config)
+        digest_ref = process_service(service, config)
+        success = digest_ref is not False
         results.append({
             "service": service["name"],
-            "success": success
+            "success": success,
+            "digest_ref": digest_ref if success else None
         })
 
     # Generate report
@@ -136,6 +154,8 @@ def main():
     for result in results:
         status = "SUCCESS" if result["success"] else "FAILED"
         logger.info(f"{result['service']}: {status}")
+        if result["digest_ref"]:
+            logger.info(f"Digest: {result['digest_ref']}")
 
     if not all(r["success"] for r in results):
         exit(1)
