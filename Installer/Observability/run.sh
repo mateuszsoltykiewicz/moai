@@ -9,7 +9,7 @@ BACKEND_TYPE="${4:-local}"
 WORKSPACE="${ENV_NAME}-observability"
 
 if [[ "$BACKEND_TYPE" == "s3" ]]; then
-  BUCKET="${ENV_NAME}-tfstate"
+  BUCKET="podgrzewacz-${ENV_NAME}-terraform-state"
   REGION="eu-central-1"
   KEY="observability/terraform.tfstate"
   cat > backend.tf <<EOF

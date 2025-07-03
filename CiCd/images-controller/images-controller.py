@@ -1,22 +1,14 @@
 import os
 import sys
-import json
-import base64
 import logging
 import shutil
 from shutil import rmtree
 import subprocess
 import yaml
-import boto3
-from botocore.config import Config
-import docker
 from git import Repo
 
-# Enable BuildKit globally for Docker builds
-os.environ["DOCKER_BUILDKIT"] = "1"
-
 # Logger configuration
-logger = logging.getLogger("ecr_deployer")
+logger = logging.getLogger("microk8s_deployer")
 logger.setLevel(logging.INFO)
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
@@ -25,7 +17,7 @@ ch.setFormatter(formatter)
 logger.addHandler(ch)
 
 def load_config():
-    with open('configuration.yaml', 'r') as file:
+    with open('../../Configuration/dev/cicd.yaml', 'r') as file:
         return yaml.safe_load(file)
 
 def copy_and_overwrite(src, dst):
@@ -42,82 +34,51 @@ def copy_and_overwrite(src, dst):
             shutil.copy2(s, d)
     return True
 
-def docker_logout(registry):
+def docker_login_microk8s_registry(registry="localhost:32000"):
+    # For MicroK8s, the registry is usually insecure and does not require login
+    # But if you have authentication, perform login here
+    logger.info(f"Assuming MicroK8s registry at {registry} does not require login.")
+
+def build_and_push_image(local_path, image_tag, registry="localhost:32000"):
+    full_image_tag = f"{registry}/{image_tag}"
+    logger.info(f"Building Docker image: {full_image_tag}")
     try:
-        subprocess.run(["docker", "logout", registry], check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        logger.info(f"Logged out from Docker registry: {registry}")
-    except Exception as e:
-        logger.warning(f"Failed to logout from Docker registry {registry}: {e}")
+        subprocess.run(
+            ["docker", "build", "-t", full_image_tag, local_path],
+            check=True
+        )
+        logger.info(f"Built image: {full_image_tag}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to build image {full_image_tag}: {e}")
+        return False
 
-def image_exists_in_ecr(ecr_client, repository_name, image_tag):
-    """Check if image tag exists in ECR with pagination handling"""
-    image_ids = []
-    next_token = None
-    
-    while True:
-        if next_token:
-            response = ecr_client.list_images(
-                repositoryName=repository_name,
-                filter={'tagStatus': 'TAGGED'},
-                nextToken=next_token
-            )
-        else:
-            response = ecr_client.list_images(
-                repositoryName=repository_name,
-                filter={'tagStatus': 'TAGGED'}
-            )
-        
-        image_ids.extend(response.get('imageIds', []))
-        next_token = response.get('nextToken')
-        if not next_token:
-            break
-
-    existing_tags = [img['imageTag'] for img in image_ids if 'imageTag' in img]
-    return image_tag in existing_tags
+    logger.info(f"Pushing image: {full_image_tag}")
+    try:
+        subprocess.run(
+            ["docker", "push", full_image_tag],
+            check=True
+        )
+        logger.info(f"Pushed image: {full_image_tag}")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to push image {full_image_tag}: {e}")
+        return False
 
 def process_service(service_config, config):
     service_name = service_config["name"]
     logger.info(f"Processing service: {service_name}")
-    
+
     # Construct full local path
     local_path = os.path.join(config["global"]["repositoriesPath"], service_config["local_path"].lstrip('./'))
     repo_url = service_config["repo_url"]
     branch = service_config["branch"]
-    environment = service_config["environment"]
     tag = service_config["tag"]
     copy_dir = service_config.get("copy_dir")
+    registry = config["global"].get("microk8sRegistry", "localhost:32000")
 
-    # ECR repository name construction
-    ECR_REPOSITORY_NAME = f"{environment}/{service_name}"
-    IMAGE_TAG = tag
+    IMAGE_TAG = f"{service_name}:{tag}"
 
     try:
-        # Initialize AWS clients
-        ecr_client = boto3.client('ecr', config=Config(region_name=config["global"]["awsRegion"]))
-        
-        # Create or verify ECR repository
-        try:
-            ecr_client.create_repository(
-                repositoryName=ECR_REPOSITORY_NAME,
-                imageTagMutability=config["ecr"]["tagsMutability"],
-                imageScanningConfiguration={'scanOnPush': True}
-            )
-            logger.info(f"Created ECR repository: {ECR_REPOSITORY_NAME}")
-        except ecr_client.exceptions.RepositoryAlreadyExistsException:
-            logger.info(f"ECR repository exists: {ECR_REPOSITORY_NAME}")
-
-        # Get repository URI
-        repo_data = ecr_client.describe_repositories(
-            repositoryNames=[ECR_REPOSITORY_NAME]
-        )
-        repository_url = repo_data['repositories'][0]['repositoryUri']
-        registry = repository_url.split('/')[0]
-
-        # Check if image already exists (including 'latest')
-        if image_exists_in_ecr(ecr_client, ECR_REPOSITORY_NAME, IMAGE_TAG):
-            logger.info(f"Image {ECR_REPOSITORY_NAME}:{IMAGE_TAG} already exists. Skipping build/push.")
-            return True
-
         # Git operations
         use_cloning = config["global"]["repositoriesPath"] in ("./", ".")
         repo = None
@@ -144,33 +105,10 @@ def process_service(service_config, config):
                 logger.error(f"File copy failed: {str(e)}")
                 return False
 
-        # Docker operations
-        docker_client = docker.from_env()
-        
-        # ECR logout (to clear any stale token)
-        docker_logout(registry)
-
-        # ECR login
-        auth = ecr_client.get_authorization_token()
-        username, password = base64.b64decode(auth['authorizationData'][0]['authorizationToken']).decode().split(':')
-        docker_client.login(
-            username=username,
-            password=password,
-            registry=auth['authorizationData'][0]['proxyEndpoint']
-        )
-        logger.info(f"Logged in to Docker ECR registry: {registry}")
-
-        # Build image
-        image, _ = docker_client.images.build(
-            path=local_path,
-            tag=f"{repository_url}:{IMAGE_TAG}",
-            rm=True
-        )
-        logger.info(f"Built image: {repository_url}:{IMAGE_TAG}")
-
-        # Push image
-        push_log = docker_client.images.push(f"{repository_url}:{IMAGE_TAG}")
-        logger.info(f"Push result: {push_log}")
+        # Build and push image to MicroK8s registry
+        docker_login_microk8s_registry(registry)
+        if not build_and_push_image(local_path, IMAGE_TAG, registry):
+            return False
 
         # Cleanup cloned repo if we cloned it
         if use_cloning and os.path.exists(local_path):

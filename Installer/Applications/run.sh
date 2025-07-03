@@ -10,7 +10,7 @@ WORKSPACE="${ENV_NAME}-applications"
 
 # Backend config (S3 or local)
 if [[ "$BACKEND_TYPE" == "s3" ]]; then
-  BUCKET="${ENV_NAME}-tfstate"
+  BUCKET="podgrzewacz-${ENV_NAME}-terraform-state"
   REGION="eu-central-1"
   KEY="applications/terraform.tfstate"
   cat > backend.tf <<EOF

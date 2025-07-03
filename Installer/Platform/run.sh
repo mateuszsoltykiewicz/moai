@@ -9,7 +9,7 @@ BACKEND_TYPE="${3:-local}"
 WORKSPACE="${ENV_NAME}-${INSTALLER_TYPE}"
 
 if [[ "$BACKEND_TYPE" == "s3" ]]; then
-  BUCKET="${ENV_NAME}-tfstate"
+  BUCKET="podgrzewacz-${ENV_NAME}-terraform-state"
   REGION="eu-central-1"
   KEY="${INSTALLER_TYPE}/terraform.tfstate"
   cat > backend.tf <<EOF
