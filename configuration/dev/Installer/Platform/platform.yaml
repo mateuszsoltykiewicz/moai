@@ -29,7 +29,7 @@ platform:
     values_file: "../../Configuration/Helm/dev/platform/docker-registry/values.yaml"
     variables:
       persistence.enabled: true
-      persistence.size: 50Gi
+      persistence.size: 5Gi
 
   - name: istio
     enabled: true
