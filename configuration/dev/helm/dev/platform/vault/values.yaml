@@ -1,0 +1,53 @@
+server:
+  ha:
+    enabled: true
+    replicas: 1
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        storage "raft" {
+          path    = "/vault/data"
+          node_id = "$(POD_NAME)"
+        }
+        listener "tcp" {
+          address     = "0.0.0.0:8200"
+          cluster_address = "0.0.0.0:8201"
+          tls_disable = "true"
+        }
+        api_addr = "http://$(POD_IP):8200"
+        cluster_addr = "http://$(POD_IP):8201"
+        ui = true
+  dataStorage:
+    enabled: true
+    size: 1Gi
+    storageClass: "standard"
+  resources:
+    requests:
+      cpu: 150m
+      memory: 256Mi
+    limits:
+      cpu: 300m
+      memory: 512Mi
+  service:
+    enabled: true
+    type: ClusterIP
+  ingress:
+    enabled: false  # Enable and configure for external access if needed
+
+  # Enable Kubernetes authentication method
+  extraEnvironmentVars:
+    VAULT_K8S_AUTH_PATH: "auth/kubernetes"
+    VAULT_K8S_ROLE: "default"
+
+  # Enable Vault Agent Injector for pod secrets injection
+  injector:
+    enabled: true
+
+  # Security context
+  securityContext:
+    runAsUser: 100
+    fsGroup: 100
+
+ui:
+  enabled: true

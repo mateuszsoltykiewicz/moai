@@ -1,0 +1,19 @@
+watchNamespaces: "kafka"
+resources:
+  limits:
+    cpu: 250m
+    memory: 512Gi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+podSecurityContext:
+  runAsUser: 1001
+  fsGroup: 1001
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: strimzi-cluster-operator
+        topologyKey: "kubernetes.io/hostname"
+logLevel: INFO

@@ -6,30 +6,16 @@ platform:
     version: "4.10.0"
     namespace: "ingress"
     values_file: "../../Configuration/Helm/dev/platform/ingress-nginx/values.yaml"
-    variables:
-      controller.replicaCount: 2
-      controller.service.type: LoadBalancer
+    variables: {}
 
   - name: cert-manager
     enabled: true
     repository: "https://charts.jetstack.io"
     chart: "cert-manager"
-    version: "1.13.2"
+    version: "v1.14.4"
     namespace: "cert-manager"
     values_file: "../../Configuration/Helm/dev/platform/cert-manager/values.yaml"
-    variables:
-      installCRDs: true
-
-  - name: docker-registry
-    enabled: true
-    repository: "https://charts.bitnami.com/bitnami"
-    chart: "harbor"
-    version: "1.14.0"
-    namespace: "registry"
-    values_file: "../../Configuration/Helm/dev/platform/docker-registry/values.yaml"
-    variables:
-      persistence.enabled: true
-      persistence.size: 5Gi
+    variables: {}
 
   - name: istio
     enabled: true
@@ -38,36 +24,51 @@ platform:
     version: "1.21.0"
     namespace: "istio-system"
     values_file: "../../Configuration/Helm/dev/platform/istio/values.yaml"
-    variables:
-      global.proxy.resources.limits.cpu: 500m
-      global.proxy.resources.limits.memory: 512Mi
+    variables: {}
 
   - name: keycloak
     enabled: true
     repository: "https://charts.bitnami.com/bitnami"
     chart: "keycloak"
-    version: "22.0.1"
+    version: "24.0.4"
     namespace: "keycloak"
     values_file: "../../Configuration/Helm/dev/platform/keycloak/values.yaml"
-    variables:
-      replicaCount: 2
+    variables: {}
+
+  - name: oauth2-proxy
+    enabled: true
+    repository: "https://oauth2-proxy.github.io/manifests"
+    chart: "oauth2-proxy"
+    version: "7.9.0"
+    namespace: "kubernetes-dashboard"
+    values_file: "../../Configuration/Helm/dev/platform/oauth2-proxy/values.yaml"
+    variables: {}
 
   - name: vault
     enabled: true
     repository: "https://helm.releases.hashicorp.com"
     chart: "vault"
-    version: "0.25.0"
+    version: "0.28.0"
     namespace: "vault"
     values_file: "../../Configuration/Helm/dev/platform/vault/values.yaml"
-    variables:
-      server.ha.enabled: true
+    variables: {}
 
-  - name: strimzi-topic-operator
+  - name: strimzi-kafka-operator
     enabled: true
     repository: "https://strimzi.io/charts/"
     chart: "strimzi-kafka-operator"
-    version: "0.39.0"
+    version: "0.46.1"
     namespace: "kafka"
-    values_file: "../../Configuration/Helm/dev/platform/strimzi-topic-operator/values.yaml"
-    variables:
-      watchedNamespace: "kafka"
+    values_file: "../../Configuration/Helm/dev/platform/strimzi-kafka-operator/values.yaml"
+    variables: {}
+
+  - name: kubernetes-dashboard
+    enabled: true
+    repository: "https://kubernetes.github.io/dashboard/"
+    chart: "kubernetes-dashboard"
+    version: "7.13.0"
+    namespace: "kubernetes-dashboard"
+    values_file: "../../Configuration/Helm/dev/platform/kubernetes-dashboard/values.yaml"
+    variables: {}
+
+

@@ -1,0 +1,59 @@
+replicaCount: 2  # High availability
+
+image:
+  tag: 24.0.4 # Use a pinned, stable version
+
+auth:
+  adminUser: admin
+  adminPassword: "changeMeStrongPassword"
+
+postgresql:
+  enabled: true
+  auth:
+    username: bn_keycloak
+    password: "changeMeStrongPassword"
+    database: bitnami_keycloak
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  hostname: keycloak.moaiops.com
+  ingressClassName: nginx
+  tls: true
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+persistence:
+  enabled: true
+  storageClass: "standard"
+  accessModes:
+    - ReadWriteOnce
+  size: 2Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Gi
+  limits:
+    cpu: 500m
+    memory: 1Gi
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: keycloak
+        topologyKey: "kubernetes.io/hostname"
+
+metrics:
+  enabled: true
+
+extraEnvVars:
+  - name: KEYCLOAK_PROXY_ADDRESS_FORWARDING
+    value: "true"
+  - name: KEYCLOAK_LOGLEVEL
+    value: "INFO"

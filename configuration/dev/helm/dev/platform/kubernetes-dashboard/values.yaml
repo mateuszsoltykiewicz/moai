@@ -1,0 +1,34 @@
+replicaCount: 1
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+service:
+  type: ClusterIP
+ingress:
+  enabled: true
+  ingressClassName: nginx
+  hosts:
+    - dashboard.moaiops.com
+  tls:
+    - secretName: dashboard-tls
+      hosts:
+        - dashboard.moaiops.com
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+rbac:
+  create: true
+  clusterAdminRole: false
+serviceAccount:
+  create: true
+enableSkipLogin: false
+enableInsecureLogin: false
+metricsScraper:
+  enabled: true
+securityContext:
+  runAsUser: 1001
+  fsGroup: 1001

@@ -1,0 +1,49 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: prod-kafka
+  namespace: kafka
+spec:
+  kafka:
+    version: 3.6.0
+    replicas: 1
+    resources:
+      requests:
+        cpu: 256m
+        memory: 512Mi
+      limits:
+        cpu: 512m
+        memory: 1Gi
+    storage:
+      type: persistent-claim
+      size: 50Gi
+      class: fast
+      deleteClaim: false
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 50Gi
+      class: fast
+      deleteClaim: false
+  entityOperator:
+    topicOperator:
+      watchedNamespace: kafka
+      reconciliationIntervalSeconds: 60
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      logging:
+        type: inline
+        loggers:
+          rootLogger.level: INFO
+    userOperator: {}

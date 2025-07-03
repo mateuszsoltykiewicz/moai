@@ -1,0 +1,42 @@
+global:
+  proxy:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 2
+        memory: 2Gi
+  istioNamespace: istio-system
+
+pilot:
+  autoscaleEnabled: true
+  autoscaleMin: 2
+  autoscaleMax: 5
+  traceSampling: 100.0
+
+meshConfig:
+  enablePrometheusMerge: true
+  accessLogFile: /dev/stdout
+  enableTracing: true
+
+gateways:
+  istio-ingressgateway:
+    autoscaleEnabled: true
+    autoscaleMin: 2
+    autoscaleMax: 5
+    type: LoadBalancer
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 2
+        memory: 2Gi
+
+  istio-egressgateway:
+    enabled: false
+
+security:
+  podSecurityPolicy:
+    enabled: false
