@@ -1,0 +1,27 @@
+loki:
+  commonConfig:
+    replication_factor: 1
+
+  fullnameOverride: loki
+
+  storage:
+    type: filesystem
+    filesystem:
+      chunks_directory: /var/loki/chunks
+      rules_directory: /var/loki/rules
+
+  rulerConfig:
+    storage:
+      type: local
+      local:
+        directory: /var/loki/rules
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    storageClass: "fast"   # dostosuj do swojego klastra
+    size: 50Gi
+    accessModes:
+      - ReadWriteOnce
+    mountPath: /var/loki

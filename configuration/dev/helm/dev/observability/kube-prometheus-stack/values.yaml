@@ -1,0 +1,89 @@
+alertmanager:
+  enabled: true
+  fullnameOverride: alertmanager
+
+prometheus:
+  fullnameOverride: monitoring
+  prometheusSpec:
+    retention: 15d
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "fast"
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 50Gi
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 1
+        memory: 2Gi
+
+
+grafana:
+  enabled: true
+  fullnameOverride: grafana
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.moaiops.com
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.moaiops.com
+    annotations:
+      kubernetes.io/ingress.class: nginx
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: "observability"
+    datasources:
+      enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.observability.svc.cluster.local:3100
+      isDefault: true
+      jsonData:
+        timeout: 60
+        maxLines: 1000
+    - name: Alertmanager
+      type: alertmanager
+      access: proxy
+      url: http://alertmanager-kube-prometheus-alertmanager.monitoring.svc.cluster.local:9093
+      jsonData:
+        implementation: prometheus
+      editable: true
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://monitoring-kube-prometheus-prometheus.prometheus.svc.cluster.local:9090
+      isDefault: true
+      jsonData:
+        httpMethod: POST
+        manageAlerts: true
+        prometheusType: Prometheus
+        prometheusVersion: 2.44.0
+
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
+
+prometheusOperator:
+  enabled: true

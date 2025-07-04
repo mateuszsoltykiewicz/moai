@@ -1,51 +1,33 @@
 observability:
-  - name: prometheus-stack
+  - name: kube-prometheus-stack
     enabled: true
     repository: "https://prometheus-community.github.io/helm-charts"
     chart: "kube-prometheus-stack"
-    version: "52.1.0"
+    version: "58.0.0"
     namespace: "monitoring"
-    values_file: "../../Configuration/Helm/dev/observability/prometheus-stack/values.yaml"
-    variables:
-      grafana.enabled: true
-      prometheus.prometheusSpec.scrapeInterval: "30s"
+    values_file: "../../Configuration/Helm/dev/observability/kube-prometheus-stack/values.yaml"
+    variables: {}
 
-  - name: grafana
+  - name: grafana-dashboards
     enabled: true
-    repository: "https://grafana.github.io/helm-charts"
-    chart: "grafana"
-    version: "7.0.0"
-    namespace: "monitoring"
-    values_file: "../../Configuration/Helm/dev/observability/grafana/values.yaml"
-    variables:
-      adminUser: "admin"
+    type: kubectl-apply
+    source: "../../Installer/observability/grafana-dashboards"
+    namespace: "observability"
+
+  - name: fluent-bit
+    enabled: true
+    repository: "https://fluent.github.io/helm-charts"
+    chart: "fluent-bit"
+    version: "0.49.0"
+    namespace: "observability"
+    values_file: "../../Configuration/Helm/dev/observability/fluent-bit/values.yaml"
+    variables: {}
 
   - name: loki
     enabled: true
     repository: "https://grafana.github.io/helm-charts"
     chart: "loki"
-    version: "5.43.0"
-    namespace: "logging"
+    version: "6.7.2"  # sprawdź najnowszą stabilną wersję!
+    namespace: "observability"
     values_file: "../../Configuration/Helm/dev/observability/loki/values.yaml"
-    variables:
-      persistence.size: 50Gi
-
-  - name: fluentbit
-    enabled: true
-    repository: "https://fluent.github.io/helm-charts"
-    chart: "fluent-bit"
-    version: "0.46.8"
-    namespace: "logging"
-    values_file: "../../Configuration/Helm/dev/observability/fluentbit/values.yaml"
-    variables:
-      backend.type: "loki"
-
-  - name: tempo
-    enabled: true
-    repository: "https://grafana.github.io/helm-charts"
-    chart: "tempo"
-    version: "1.7.1"
-    namespace: "tracing"
-    values_file: "../../Configuration/Helm/dev/observability/tempo/values.yaml"
-    variables:
-      traces.ingester.replicaCount: 2
+    variables: {}

@@ -18,7 +18,7 @@ provider "aws" {
   region = "eu-central-1"
 
   assume_role {
-    role_arn     = "arn:aws:iam::211125452360:role/terraform-backend-reader"
+    role_arn     = var.role_arn
     session_name = "terraform-session"
   }
 }

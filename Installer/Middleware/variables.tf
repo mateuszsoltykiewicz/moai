@@ -1,14 +1,13 @@
 variable "environment" {
-  description = "Deployment environment (e.g., dev, prod)"
-  type        = string
-}
-
-variable "middleware_config_path" {
-  description = "Path to the middleware.yaml configuration file"
-  type        = string
+  type    = string
+  default = "dev"
 }
 
 variable "kubeconfig_path" {
-  description = "Path to kubeconfig file for cluster access"
-  type        = string
+  type = string
+  default = "~/.kube/config"
+}
+
+variable "role_arn" {
+  type = string
 }

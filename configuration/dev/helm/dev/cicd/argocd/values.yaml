@@ -1,0 +1,76 @@
+global:
+  image:
+    tag: "v2.11.2"
+  logging:
+    format: json
+
+server:
+  replicas: 3
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 6
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hostname: argocd.prod.mycompany.com
+    tls: true
+    annotations:
+      kubernetes.io/tls-acme: "true"
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  service:
+    type: ClusterIP
+
+controller:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+repoServer:
+  replicas: 2
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
+
+applicationSet:
+  replicas: 2
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+configs:
+  cm:
+    admin.enabled: "true"
+    accounts.admin: apiKey
+    url: https://argocd.prod.mycompany.com
+  rbac:
+    policy.default: role:readonly
+    policy.csv: |
+      g, mydevops@example.com, role:admin
+      g, mydevteam@example.com, role:readonly
+  secret:
+    argocdServerAdminPassword: $2a$12$... # bcrypt hash of your admin password
+
+# Enable SSO (OIDC, SAML, etc.) for production:
+dex:
+  enabled: true
+  config:
+    connectors:
+      - type: oidc
+        id: google
+        name: Google
+        config:
+          clientID: $GOOGLE_CLIENT_ID
+          clientSecret: $GOOGLE_CLIENT_SECRET
+          issuer: https://accounts.google.com

@@ -1,8 +1,14 @@
 locals {
-  environment    = var.environment
-  installer_type = "middleware"
-  name_prefix    = "${local.environment}-${local.installer_type}"
+  # Load middleware YAML config
+  middleware_config = yamldecode(file("${path.module}/../../Configuration/installer/middleware/middleware.yaml"))["middleware"]
 
-  # Load and parse the middleware YAML config
-  middleware_configs = yamldecode(file(var.middleware_config_path)).middleware
+  # Only enabled middleware
+  enabled_middleware = {
+    for name, cfg in local.middleware_config : name => cfg if try(cfg.enable, false)
+  }
+
+  # Only enabled middleware with secrets
+  middleware_with_secrets = {
+    for name, cfg in local.enabled_middleware : name => cfg if try(cfg.secrets.enable, false)
+  }
 }

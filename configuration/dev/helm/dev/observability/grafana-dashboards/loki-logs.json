@@ -1,0 +1,26 @@
+{
+  "title": "Loki Logs",
+  "panels": [
+    {
+      "type": "logs",
+      "title": "Application Logs",
+      "datasource": "Loki",
+      "targets": [
+        {
+          "expr": "{namespace=\"$namespace\"}"
+        }
+      ]
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "namespace",
+        "type": "query",
+        "datasource": "Prometheus",
+        "refresh": 1,
+        "query": "label_values(kube_pod_info, namespace)"
+      }
+    ]
+  }
+}

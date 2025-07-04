@@ -1,0 +1,39 @@
+auth:
+  # Reference the dynamically created Secret (by Terraform)
+  existingSecret: postgresql-initdb-secrets
+  # Optionally, you can specify secretKeys if you want to map specific keys for admin/user
+  # secretKeys:
+  #   adminPasswordKey: postgres-password
+
+primary:
+  persistence:
+    enabled: true
+    storageClass: "fast"
+    size: 100Gi
+
+  initdb:
+    # Reference the Secret containing your dynamic SQL script
+    scriptsSecret: postgresql-initdb-script
+
+resources:
+  requests:
+    memory: "2Gi"
+    cpu: "1"
+  limits:
+    memory: "4Gi"
+    cpu: "2"
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+backup:
+  enabled: true
+  cronjob:
+    schedule: "0 2 * * *" # Daily backup at 2 AM
+
+service:
+  type: ClusterIP
+  ports:
+    postgresql: 5432

@@ -1,0 +1,10 @@
+%{ for user in users ~}
+CREATE USER ${user.name} WITH PASSWORD '${user.password}';
+CREATE DATABASE ${user.database} OWNER ${user.name};
+REVOKE CONNECT ON DATABASE ${user.database} FROM PUBLIC;
+GRANT CONNECT ON DATABASE ${user.database} TO ${user.name};
+
+\c ${user.database}
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
+GRANT ALL ON SCHEMA public TO ${user.name};
+%{ endfor ~}

@@ -1,0 +1,35 @@
+replicaCount: 1
+
+kraft:
+  enabled: true
+
+persistence:
+  enabled: true
+  storageClass: "fast"
+  size: 100Gi
+
+resources:
+  requests:
+    cpu: "1"
+    memory: "2Gi"
+  limits:
+    cpu: "2"
+    memory: "4Gi"
+
+metrics:
+  jmx:
+    enabled: true
+  serviceMonitor:
+    enabled: true
+
+externalAccess:
+  enabled: false
+
+# For production, consider explicit authentication settings and topic management
+# authentication:
+#   enabled: true
+#   interBrokerProtocol: PLAINTEXT
+#   clientProtocol: PLAINTEXT
+
+# zookeeper:
+#   enabled: false # if using KRaft mode

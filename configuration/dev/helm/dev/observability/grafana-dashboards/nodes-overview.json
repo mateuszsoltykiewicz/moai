@@ -1,0 +1,37 @@
+{
+  "title": "Nodes Overview",
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Node CPU Usage",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(node_cpu_seconds_total{mode!=\"idle\"}[5m])) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Node Memory Usage",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Node Disk Space Free",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "min(node_filesystem_free_bytes{mountpoint=\"/\"}) by (instance)"
+        }
+      ]
+    }
+  ]
+}

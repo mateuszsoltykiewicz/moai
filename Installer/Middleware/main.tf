@@ -1,29 +1,23 @@
+###############################
+# Generic Secret Creation (extend as needed)
+###############################
+# Add here more resources for other middleware if you want to manage secrets for them
 
+###############################
+# Helm Releases for Middleware
+###############################
 resource "helm_release" "middleware" {
-  for_each = { for svc in local.middleware_configs : svc.name => svc if svc.enabled }
+  for_each = local.enabled_middleware
 
-  name       = "${var.environment}-middleware-${each.value.name}"
-  repository = each.value.repository != null ? each.value.repository : null
-  chart      = each.value.chart
-  version    = each.value.version
-  namespace  = each.value.namespace != null ? each.value.namespace : "middleware"
+  name             = each.key
+  repository       = each.value.repo
+  chart            = each.value.chart
+  version          = each.value.version
+  namespace        = each.value.ns
+  create_namespace = true
+  wait             = true
 
-  dynamic "values" {
-    for_each = try([each.value.values_file], [])
-    content {
-      content = file(values.value)
-    }
-  }
-
-  dynamic "set" {
-    for_each = each.value.variables != null ? [for k, v in each.value.variables : { name = k, value = v }] : []
-    content {
-      name  = set.value.name
-      value = tostring(set.value.value)
-    }
-  }
-
-  timeout          = 600
-  atomic           = true
-  cleanup_on_fail  = true
+  values = [
+    file("${path.module}/../../Configuration/middleware/${var.environment}/${each.key}/values.yaml")
+  ]
 }

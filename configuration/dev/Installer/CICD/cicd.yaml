@@ -1,20 +1,8 @@
-cicd:
-  - name: argocd
-    enabled: true
-    repository: "https://argoproj.github.io/argo-helm"
-    chart: "argo-cd"
-    version: "5.41.0"
-    namespace: "argocd"
-    values_file: "../../Configuration/Helm/dev/cicd/argocd/values.yaml"
-    variables:
-      server.service.type: LoadBalancer
-
-  - name: tekton
-    enabled: false
-    repository: "https://tekton.dev/charts"
-    chart: "tekton"
-    version: "0.30.0"
-    namespace: "tekton-pipelines"
-    values_file: "../../Configuration/Helm/dev/cicd/tekton/values.yaml"
-    variables:
-      webhook.enabled: true
+argocd:
+  enable: true
+  repo: "https://argoproj.github.io/argo-helm"
+  chart: "argo-cd"
+  version: "6.7.14"
+  ns: "argocd"
+  secrets:
+    enable: false
