@@ -14,7 +14,7 @@ async def main(app):
     # Setup network and configuration
     network_controller = NetworkController()
     wlan = await asyncio.create_task(network_controller.connect())
-    remote_metrics_url = "http://<REMOTE_PICO_IP>/sensor/metrics"
+    remote_metrics_url = "http://<REMOTE_PICO_IP>/metrics"
     configuration = RelaysConfiguration(app=app, wlan=wlan, metrics_poll_url=remote_metrics_url)
 
     # Controllers

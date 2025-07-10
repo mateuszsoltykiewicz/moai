@@ -1,4 +1,4 @@
-from uasyncio import asyncio
+import asyncio
 
 # --- Disaster Controller ---
 class DisasterController:
